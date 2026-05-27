@@ -31,8 +31,14 @@ jobs:
       - name: Build
         run: npm run build
         env:
-          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_ci_placeholder
-          CLERK_SECRET_KEY: sk_test_ci_placeholder
+          # Clerk validates key format at build/prerender time — must be valid base64 after pk_test_/sk_test_.
+          # These are CI-only placeholders (account.demo$); use GitHub secrets for integration tests if needed.
+          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_YWNjb3VudC5kZW1vJA==
+          CLERK_SECRET_KEY: sk_test_YWNjb3VudC5kZW1vJA==
+          NEXT_PUBLIC_CLERK_SIGN_IN_URL: /sign-in
+          NEXT_PUBLIC_CLERK_SIGN_UP_URL: /sign-up
+          NEXT_PUBLIC_CLERK_SIGN_IN_FALLBACK_REDIRECT_URL: /dashboard
+          NEXT_PUBLIC_CLERK_SIGN_UP_FALLBACK_REDIRECT_URL: /dashboard
           OPENAI_API_KEY: sk-test-ci-placeholder
 
   playwright-smoke:
