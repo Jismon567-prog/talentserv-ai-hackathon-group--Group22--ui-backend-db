@@ -42,6 +42,16 @@ cp .env.local.example .env.local
 npm run build
 ```
 
+### Verify tests (optional, recommended before submit)
+
+```bash
+npm test                    # Vitest — automated TC-AGENT-001 … 010
+npm run lint
+cd automation/playwright && npm install && npx playwright install chromium && npm test
+```
+
+CI runs the same steps via `.github/workflows/ci.yml`.
+
 ---
 
 ## 2. Production Environment Variables
@@ -329,6 +339,8 @@ GPT-4o Mini is low cost but not free. Set [OpenAI usage limits](https://platform
 | History empty | Supabase not configured | Set Supabase env vars; run schema SQL |
 | RLS policy error on save | Wrong Supabase key | Use **service_role**, not anon key |
 | Build fails on Vercel | TypeScript error | Run `npm run build` locally first |
+| CI build: invalid Clerk key | Placeholder not base64-valid | Use keys from `.github/workflows/ci.yml` or real secrets |
+| Webpack error on `/dashboard` in dev | Stale `.next` HMR cache | `rm -rf .next && npm run dev`; avoid multiple `npm run dev` processes |
 | Hydration warning in console | Browser extension (Grammarly) | Harmless; or disable extension on demo URL |
 
 ---
@@ -356,7 +368,9 @@ No other `vercel.json` entries are required — Next.js App Router, Clerk middle
 ## Related docs
 
 - [README.md](./README.md) — quick start + deploy button
-- [docs/7-deployment-guide.md](./docs/7-deployment-guide.md) — hackathon submission deployment section
+- [docs/7-deployment-guide.md](./docs/7-deployment-guide.md) — hackathon deployment section
+- [docs/9-evaluation-coverage.md](./docs/9-evaluation-coverage.md) — 100% criteria scorecard
+- [SUBMISSION.md](./SUBMISSION.md) — judge one-pager
 - [.env.local.example](./.env.local.example) — local env template
 
 ---
