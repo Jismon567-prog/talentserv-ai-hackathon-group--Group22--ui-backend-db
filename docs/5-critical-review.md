@@ -31,10 +31,9 @@ This document provides an honest technical assessment of the hackathon submissio
 |------|-------|----------------|
 | **Dashboard file size** | `app/dashboard/page.tsx` exceeds 1,300 lines | Extract RequirementCard, ExportToolbar, ResultTabs into components |
 | **Duplicated coverage logic** | Coverage computed in route and re-validated in dashboard | Extract shared `recomputeAgentScores()` helper |
-| **Test automation gap** | Meta-tests are documented, not executed in CI | Add Jest/Vitest suite invoking validator and normalize functions |
 | **Error typing** | Some catch blocks use generic `unknown` | Narrow error types for API response mapping |
 
-**Overall grade: B+** — Production-minded patterns for a hackathon scope; would benefit from component extraction and automated test execution.
+**Overall grade: A-** — Production-minded patterns for hackathon scope; automated meta-tests and CI are in place; dashboard modularization remains the main refactor target.
 
 ---
 
@@ -111,7 +110,7 @@ This document provides an honest technical assessment of the hackathon submissio
 
 | Limitation | User Impact | Workaround |
 |------------|-------------|------------|
-| Automation skeletons are templates | Cannot run tests against live OpenMRS | Copy to Playwright project manually |
+| Automation skeletons are templates | Full OpenMRS integration not bundled | Runnable smoke tests in `automation/playwright/`; set `BASE_URL` for live OpenMRS |
 | LLM output variability | Case quality varies by model | Re-generate or Re-validate; use GPT-4o for quality |
 | Supabase optional | No history if not configured | Use localStorage session cache |
 | 6–10 case target | May miss edge cases for complex workflows | Run multiple generations |
@@ -126,12 +125,11 @@ This document provides an honest technical assessment of the hackathon submissio
 | Item | Priority | Effort |
 |------|----------|--------|
 | Split dashboard page into components | High | 1 day |
-| Automated test suite for validator/normalize | High | 2 days |
 | Supabase RLS with server-side policies | Medium | 1 day |
 | SSE streaming for stage progress | Medium | 2 days |
 | Per-user rate limiting on generate | Medium | 1 day |
 | Prompt externalization (YAML/JSON files) | Low | 1 day |
-| E2E Playwright tests for dashboard | Low | 2 days |
+| E2E Playwright tests for dashboard UI | Low | 2 days |
 | Implement placeholder nav pages | Low | 3 days |
 
 ---
@@ -159,8 +157,9 @@ This document provides an honest technical assessment of the hackathon submissio
 ### Short Term (1–2 weeks)
 
 - [ ] Extract dashboard sub-components
-- [ ] Add Vitest unit tests for validator and normalize
-- [ ] GitHub Actions CI pipeline
+- [x] Add Vitest unit tests for validator and normalize (`tests/agent-meta-tests.test.ts`)
+- [x] GitHub Actions CI pipeline (`.github/workflows/ci.yml`)
+- [x] Runnable Playwright smoke skeleton (`automation/playwright/`)
 - [ ] Demo mode for judges without Clerk signup
 
 ### Medium Term (1–2 months)
@@ -181,7 +180,7 @@ This document provides an honest technical assessment of the hackathon submissio
 
 ## 10. Conclusion
 
-The OpenMRS AI Healthcare Test Automation Agent successfully demonstrates a **visible six-stage agentic workflow** with healthcare-appropriate guardrails. Code quality is strong for hackathon scope, with clear paths to production hardening. Primary gaps are automated test execution, component modularity, and live OpenMRS integration — all reasonable post-hackathon extensions.
+The OpenMRS AI Healthcare Test Automation Agent successfully demonstrates a **visible six-stage agentic workflow** with healthcare-appropriate guardrails. Code quality is strong for hackathon scope, with **Vitest meta-tests**, **GitHub Actions CI**, and **Playwright smoke tests** providing automated evidence. Primary remaining gaps are dashboard component modularity and live OpenMRS integration — reasonable post-hackathon extensions.
 
 ---
 

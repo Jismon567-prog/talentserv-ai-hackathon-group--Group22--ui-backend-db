@@ -1,0 +1,13 @@
+{
+  "name": "openmrs-agent-playwright-skeleton",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Runnable Playwright + REST smoke tests aligned to agent-generated automation skeletons.",
+  "scripts": {
+    "test": "playwright test",
+    "test:headed": "playwright test --headed"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.51.0"
+  }
+}

@@ -244,7 +244,31 @@ curl -X POST https://your-app.vercel.app/api/agent/generate \
 
 ---
 
-## 9. Known Issues
+## 9. Automated Tests & CI
+
+### Local
+
+```bash
+npm test                    # Vitest — TC-AGENT-001 … 010 (tests/agent-meta-tests.test.ts)
+npm run lint                # ESLint (eslint.config.mjs)
+npm run build               # Requires real Clerk keys in .env.local
+cd automation/playwright && npm install && npm test   # Playwright smoke
+```
+
+Session cache lives in `lib/generation-cache.ts` (not `lib/utils.ts`).
+
+### GitHub Actions
+
+Workflow: `.github/workflows/ci.yml`
+
+- **build-and-test:** lint → Vitest → build
+- **playwright-smoke:** automation skeleton smoke tests
+
+CI build uses valid-format Clerk placeholder keys so `next build` can prerender without real credentials. See [Evaluation Coverage](./9-evaluation-coverage.md).
+
+---
+
+## 10. Known Issues
 
 | Issue | Status | Workaround |
 |-------|--------|------------|
@@ -258,7 +282,7 @@ curl -X POST https://your-app.vercel.app/api/agent/generate \
 
 ---
 
-## 10. Troubleshooting
+## 11. Troubleshooting
 
 ### "You must be signed in to call the agent"
 
@@ -287,20 +311,28 @@ npm run lint
 
 ---
 
-## 11. Submission Artifacts Checklist
+### CI build fails: invalid Clerk publishableKey
+
+GitHub Actions must use **valid-format** `pk_test_…` keys (base64 after prefix), not arbitrary strings like `pk_test_ci_placeholder`. The workflow uses CI-only placeholders documented in `.github/workflows/ci.yml`.
+
+---
+
+## 12. Submission Artifacts Checklist
 
 - [x] Source code in Git repository
 - [x] `.env.local.example` with all variables documented
 - [x] Local run instructions (this document)
-- [x] Deployment guide for Vercel
-- [x] Seven submission documents in `docs/`
+- [x] Deployment guide for Vercel ([DEPLOYMENT.md](../DEPLOYMENT.md))
+- [x] Nine submission documents in `docs/` + [SUBMISSION.md](../SUBMISSION.md)
 - [x] README linking all documents
 - [x] Sample requirements in UI
 - [x] 10 agent meta-test cases in `/dashboard/agent-tests`
+- [x] Automated meta-tests (`npm test`) + GitHub Actions CI
+- [x] Runnable Playwright smoke tests (`automation/playwright/`)
 
 ---
 
-## 12. Related Documents
+## 13. Related Documents
 
 - [Architecture](./3-architecture.md)
 - [Implementation Plan](./2-implementation-plan.md)

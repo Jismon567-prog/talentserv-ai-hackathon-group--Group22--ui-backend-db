@@ -106,7 +106,8 @@ The dashboard (`app/dashboard/page.tsx`) is a single-page workspace:
 ### State Management
 
 - React `useState` / `useEffect` for generation lifecycle
-- `localStorage` per Clerk user for session restore (`lib/utils.ts`)
+- `localStorage` per Clerk user for session restore (`lib/generation-cache.ts`)
+- `lib/utils.ts` — Tailwind `cn()` helper only (kept lightweight for client components)
 - Server remains source of truth for generation results and history
 
 ---
@@ -298,10 +299,27 @@ flowchart LR
 | Local | Test keys | Dev project or none | Developer keys |
 | Production | Production app | Production project | Restricted service keys |
 
-### CI/CD (Future)
+### CI/CD (GitHub Actions)
 
-- GitHub Actions: `npm run lint`, `npx tsc --noEmit`, optional E2E
-- Preview deployments on pull requests via Vercel
+Implemented in `.github/workflows/ci.yml`:
+
+| Job | Steps |
+|-----|-------|
+| **build-and-test** | `npm ci` → `npm run lint` → `npm test` (Vitest) → `npm run build` |
+| **playwright-smoke** | `automation/playwright` smoke tests (TC-SMOKE-001/002) |
+
+**Build env:** CI uses syntactically valid Clerk placeholder keys (`pk_test_YWNjb3VudC5kZW1vJA==`) so Next.js can prerender pages during `next build` without real Clerk credentials.
+
+**Local verification:**
+
+```bash
+npm test
+npm run lint
+npm run build
+cd automation/playwright && npm install && npm test
+```
+
+Preview deployments on pull requests via Vercel (optional).
 
 ---
 
