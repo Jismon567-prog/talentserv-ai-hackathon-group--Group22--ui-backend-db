@@ -6,6 +6,8 @@ AI-powered assistant that converts healthcare requirements into structured OpenM
 
 Reference: [OpenMRS Core](https://github.com/openmrs/openmrs-core)
 
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2FTs-akshayshipurkar%2Ftalentserv-ai-hackathon-group--Group22--ui-backend-db&project-name=openmrs-ai-test-agent&env=NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY,CLERK_SECRET_KEY,OPENAI_API_KEY,NEXT_PUBLIC_CLERK_SIGN_IN_URL,NEXT_PUBLIC_CLERK_SIGN_UP_URL,NEXT_PUBLIC_CLERK_SIGN_IN_FALLBACK_REDIRECT_URL,NEXT_PUBLIC_CLERK_SIGN_UP_FALLBACK_REDIRECT_URL&envDescription=Required%20keys%20for%20Clerk%20auth%20and%20OpenAI.%20See%20DEPLOYMENT.md%20for%20full%20list%20(including%20optional%20Groq%20%2B%20Supabase).&envLink=https%3A%2F%2Fgithub.com%2FTs-akshayshipurkar%2Ftalentserv-ai-hackathon-group--Group22--ui-backend-db%2Fblob%2Fmain%2FDEPLOYMENT.md)
+
 ---
 
 ## Features
@@ -48,7 +50,7 @@ npm run dev
 
 Open **http://localhost:3000** → Sign in → **Dashboard** → pick a sample → **Generate**.
 
-Full setup and deployment: **[docs/7-deployment-guide.md](docs/7-deployment-guide.md)**
+Full setup: **[DEPLOYMENT.md](DEPLOYMENT.md)** · Hackathon doc: [docs/7-deployment-guide.md](docs/7-deployment-guide.md)
 
 ---
 
@@ -118,13 +120,29 @@ Export (MD / CSV / JSON)
 
 ## Environment Variables
 
-See [`.env.local.example`](.env.local.example) for the full list. Minimum required:
+See [`.env.local.example`](.env.local.example) and **[DEPLOYMENT.md §2](DEPLOYMENT.md#2-production-environment-variables)** for production.
 
-```env
-NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_...
-CLERK_SECRET_KEY=sk_test_...
-OPENAI_API_KEY=sk-proj-...
-```
+### Required for production
+
+| Variable | Public? | Purpose |
+|----------|---------|---------|
+| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | Yes | Clerk frontend |
+| `CLERK_SECRET_KEY` | **No** | Clerk server auth |
+| `OPENAI_API_KEY` | **No** | Default GPT models |
+| `NEXT_PUBLIC_CLERK_SIGN_IN_URL` | Yes | `/sign-in` |
+| `NEXT_PUBLIC_CLERK_SIGN_UP_URL` | Yes | `/sign-up` |
+| `NEXT_PUBLIC_CLERK_SIGN_IN_FALLBACK_REDIRECT_URL` | Yes | `/dashboard` |
+| `NEXT_PUBLIC_CLERK_SIGN_UP_FALLBACK_REDIRECT_URL` | Yes | `/dashboard` |
+
+### Optional
+
+| Variable | Public? | Purpose |
+|----------|---------|---------|
+| `GROQ_API_KEY` | **No** | Free Llama/Gemma models (recommended on Vercel Hobby) |
+| `NEXT_PUBLIC_SUPABASE_URL` | Yes | Supabase project URL |
+| `SUPABASE_SERVICE_ROLE_KEY` | **No** | Server-side history writes |
+
+> **Note:** This app does **not** use `NEXT_PUBLIC_SUPABASE_ANON_KEY`. Use `SUPABASE_SERVICE_ROLE_KEY` (service role secret), not the anon key.
 
 ---
 
@@ -134,11 +152,25 @@ Ten documented test cases validating the agent itself (auth, schema, privacy, re
 
 ---
 
-## Deployment
+## Deploy to Vercel
 
-**Recommended:** [Vercel](https://vercel.com) — single Next.js deployment for UI + API routes.
+**Recommended:** [Vercel Hobby (free)](https://vercel.com/pricing) — one deployment for UI + API routes.
 
-See **[docs/7-deployment-guide.md](docs/7-deployment-guide.md)** for step-by-step instructions.
+### One-click deploy
+
+Click the **Deploy with Vercel** button at the top of this README, then:
+
+1. Connect your GitHub account and import the repo (or fork first).
+2. Paste env vars when prompted (Clerk + OpenAI minimum).
+3. Click **Deploy** — wait for the build (~2–3 min).
+4. In [Clerk Dashboard](https://dashboard.clerk.com), add your `https://*.vercel.app` URL to allowed domains.
+5. Open the live URL → Sign in → Dashboard → Generate.
+
+### Manual deploy
+
+Full step-by-step guide: **[DEPLOYMENT.md](DEPLOYMENT.md)**
+
+**Free tier tip:** Vercel Hobby limits functions to **60 seconds**. Use a **Groq** model (set `GROQ_API_KEY`) for faster generations, or upgrade to Pro for 120s runs.
 
 ---
 

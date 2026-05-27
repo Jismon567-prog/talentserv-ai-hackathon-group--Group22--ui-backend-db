@@ -1,5 +1,7 @@
 # Source Code and Deployment Guide
 
+> **Vercel free-tier deploy:** See the root **[DEPLOYMENT.md](../DEPLOYMENT.md)** for the full step-by-step guide, env var checklist, and Hobby timeout workarounds.
+
 **Project:** OpenMRS AI Healthcare Test Automation Agent  
 **Version:** 1.0  
 **Date:** May 2026
