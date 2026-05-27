@@ -1,4 +1,4 @@
-# OpenMRS Healthcare Test Automation Agent
+# OpenMRS AI Healthcare Test Automation Agent
 
 **Talentserv AI Hackathon — Group 22 · Challenge 6**
 
@@ -8,20 +8,47 @@ Reference: [OpenMRS Core](https://github.com/openmrs/openmrs-core)
 
 ---
 
-## Features (MVP)
+## Features
 
 | Feature | Status |
 | ------- | ------ |
 | Third-party auth (Clerk) with protected `/dashboard` | ✅ |
-| Healthcare requirement input + sample workflows | ✅ |
-| 5-stage agentic pipeline with visible trace | ✅ |
-| OpenMRS concepts (Patient, User, Role, Visit, Encounter) | ✅ |
-| Test cases (functional, validation, negative, security, privacy, audit) | ✅ |
+| Healthcare requirement input + 10 sample workflows | ✅ |
+| Six-stage agentic pipeline with visible trace | ✅ |
+| OpenMRS concepts (Patient, User, Role, Visit, Encounter, Obs) | ✅ |
+| Test cases (Functional, Negative, Validation, Security, Privacy, Audit) | ✅ |
 | Synthetic test data (no real PHI) | ✅ |
-| REST-assured + Playwright automation skeletons | ✅ |
-| Coverage & safety checklist | ✅ |
+| Playwright + REST API automation skeletons | ✅ |
+| Coverage report + safety checklist + QA validation | ✅ |
 | Export Markdown / CSV / JSON | ✅ |
-| 10 automated validation tests for the assistant | ✅ |
+| Supabase generation history | ✅ (optional) |
+| OpenAI + Groq model selection | ✅ |
+| 10 agent meta-test cases | ✅ |
+
+---
+
+## Quick Start
+
+### Prerequisites
+
+- Node.js 20+
+- [Clerk](https://clerk.com) account (free tier)
+- [OpenAI](https://platform.openai.com) API key (default model: GPT-4o Mini)
+- [Groq](https://console.groq.com) API key (optional, free-tier models)
+- [Supabase](https://supabase.com) project (optional, for history)
+
+### Setup
+
+```bash
+npm install
+cp .env.local.example .env.local
+# Edit .env.local with your Clerk + LLM keys
+npm run dev
+```
+
+Open **http://localhost:3000** → Sign in → **Dashboard** → pick a sample → **Generate**.
+
+Full setup and deployment: **[docs/7-deployment-guide.md](docs/7-deployment-guide.md)**
 
 ---
 
@@ -29,81 +56,39 @@ Reference: [OpenMRS Core](https://github.com/openmrs/openmrs-core)
 
 ```
 .
-├── ui/                 # Next.js 15 + Clerk auth (frontend)
-├── backend/            # Express API + agent pipeline
-├── db/                 # JSON persistence for generations
-├── automation/         # Playwright UI + REST-assured API skeletons
-├── docs/               # Agentic workflow evidence + samples
-└── README.md
+├── app/
+│   ├── api/agent/          # Generate + history API routes
+│   ├── dashboard/          # Main workspace + Agent QA page
+│   ├── sign-in/, sign-up/  # Clerk auth
+│   └── layout.tsx
+├── components/             # UI panels (progress, validation, export)
+├── lib/                    # Agent pipeline, schemas, prompts, validator
+├── supabase/               # SQL schema + migrations
+├── docs/                   # Hackathon submission documents
+└── middleware.ts           # Clerk route protection
 ```
 
 ---
 
-## Prerequisites
+## Agent Pipeline
 
-- Node.js 20+
-- npm 10+
-- [Clerk](https://clerk.com) account (free tier) for authentication
+The UI shows **six stages**. The server runs **two LLM calls** plus **three local stages**:
 
----
-
-## Quick Start (Local)
-
-### 1. Install dependencies
-
-```bash
-npm install
 ```
-
-### 2. Configure Clerk (required for auth)
-
-1. Create an application at [dashboard.clerk.com](https://dashboard.clerk.com)
-2. Copy keys into `ui/.env.local`:
-
-```bash
-cp ui/.env.example ui/.env.local
+Requirement Input
+      ↓
+Stages 1+2 — Requirement Analyzer + Risk Planner (combined LLM call)
+      ↓
+Stage 3 — Test Case Generator (LLM)
+      ↓
+Stage 4 — Synthetic Data Generator (local)
+      ↓
+Stage 5 — Automation Skeleton Writer (local)
+      ↓
+Stage 6 — Coverage & Safety Reviewer (local)
+      ↓
+Export (MD / CSV / JSON)
 ```
-
-Edit `ui/.env.local`:
-
-```env
-NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_...
-CLERK_SECRET_KEY=sk_test_...
-NEXT_PUBLIC_API_URL=http://localhost:4000/api
-```
-
-### 3. Start backend + frontend
-
-```bash
-npm run dev
-```
-
-- **UI:** http://localhost:3000
-- **API:** http://localhost:4000
-
-### 4. Demo flow
-
-1. Open http://localhost:3000
-2. Sign up / Sign in with Clerk (Google, email, etc.)
-3. Go to **Dashboard**
-4. Click a sample requirement or paste your own
-5. Click **Generate Test Plan**
-6. Review agent trace, test cases, synthetic data, automation skeletons, coverage
-7. Export as Markdown, CSV, or JSON
-
----
-
-## Auth Configuration Notes
-
-- **Provider:** [Clerk](https://clerk.com) — third-party auth (no custom password storage)
-- **Protected routes:** `/dashboard` (enforced via `ui/middleware.ts`)
-- **Public routes:** `/`, `/sign-in`, `/sign-up`
-- **User identity:** Displayed on dashboard; sent to backend as `userId` + optional `userEmail`
-
-Clerk setup checklist:
-- Enable desired social providers in Clerk dashboard
-- Set sign-in/sign-up URLs to `/sign-in` and `/sign-up`
-- Add `http://localhost:3000` to allowed origins for local dev
 
 ---
 
@@ -111,143 +96,62 @@ Clerk setup checklist:
 
 | Method | Path | Description |
 | ------ | ---- | ----------- |
-| GET | `/api/health` | Health check |
-| GET | `/api/samples` | Sample healthcare requirements |
-| POST | `/api/generate` | Run full agent pipeline |
-| GET | `/api/history/:userId` | User generation history |
-| GET | `/api/export/:id/markdown` | Export test plan (Markdown) |
-| GET | `/api/export/:id/csv` | Export test cases (CSV) |
-| GET | `/api/export/:id/json` | Export full result (JSON) |
+| POST | `/api/agent/generate` | Run full agent pipeline |
+| GET | `/api/agent/history` | List user's generation history |
+| GET | `/api/agent/history/[id]` | Load a past generation |
 
-### Sample generate request
+---
 
-```bash
-curl -X POST http://localhost:4000/api/generate \
-  -H "Content-Type: application/json" \
-  -d '{
-    "requirement": "As a clinician, I can view patient records. Unauthorized users must be blocked.",
-    "userId": "demo-user"
-  }'
+## Hackathon Submission Documents
+
+| # | Document | Description |
+|---|----------|-------------|
+| 1 | [Groomed Requirements](docs/1-groomed-requirements.md) | Scope, user stories, acceptance criteria |
+| 2 | [Implementation Plan](docs/2-implementation-plan.md) | Step-by-step approach, modules, timeline |
+| 3 | [Architecture](docs/3-architecture.md) | System design, data flow, integrations |
+| 4 | [Test Plan](docs/4-test-plan.md) | Strategy + 10 agent meta-test cases |
+| 5 | [Critical Review](docs/5-critical-review.md) | Quality, security, limitations, debt |
+| 6 | [Agentic Evidence](docs/6-agentic-evidence.md) | Cursor AI development workflow |
+| 7 | [Deployment Guide](docs/7-deployment-guide.md) | Setup, env vars, Vercel deployment |
+
+---
+
+## Environment Variables
+
+See [`.env.local.example`](.env.local.example) for the full list. Minimum required:
+
+```env
+NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_...
+CLERK_SECRET_KEY=sk_test_...
+OPENAI_API_KEY=sk-proj-...
 ```
 
 ---
 
-## Sample Input Requirements
+## Agent QA Meta-Tests
 
-Built-in samples (also available via `/api/samples`):
-
-1. **Patient Registration** — demographics, duplicate identifiers, invalid birthdates
-2. **Patient View Access** — authorized vs unauthorized access
-3. **Visit and Encounter Creation** — status transitions
-4. **Role-based Workflow Permissions** — receptionist, clinician, admin
-5. **Privacy and Audit Trail** — PHI visibility and audit logging
-
----
-
-## Running Tests
-
-### Assistant validation tests (10 test cases)
-
-```bash
-npm run test -w backend
-```
-
-Tests cover: workflow detection, agent stages, OpenMRS test case quality, synthetic data safety, automation skeletons, coverage report, export formats, and API endpoints.
-
-### UI automation skeleton (Playwright)
-
-```bash
-cd automation/playwright
-npx playwright install chromium
-npx playwright test
-```
-
-### Full automation script
-
-```bash
-chmod +x automation/run-tests.sh
-./automation/run-tests.sh
-```
-
----
-
-## Agentic Workflow
-
-```
-Requirement Input
-      ↓
-Healthcare Requirement Analyzer
-      ↓
-Risk & Privacy Test Planner
-      ↓
-Functional Test Generator
-      ↓
-Automation Skeleton Writer
-      ↓
-Coverage & Safety Reviewer
-      ↓
-Export (MD / CSV / JSON)
-```
-
-See [docs/AGENTIC_WORKFLOW.md](docs/AGENTIC_WORKFLOW.md) for evidence and iteration notes.
+Ten documented test cases validating the agent itself (auth, schema, privacy, retry, export) are available in the dashboard at **Agent QA** (`/dashboard/agent-tests`) and in [docs/4-test-plan.md](docs/4-test-plan.md).
 
 ---
 
 ## Deployment
 
-**Recommended:** Deploy to [Vercel](https://vercel.com) (UI + API in one app).
+**Recommended:** [Vercel](https://vercel.com) — single Next.js deployment for UI + API routes.
 
-See the full step-by-step guide: **[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)**
-
-### Quick deploy checklist
-
-1. Push repo to GitHub
-2. Import in Vercel with **Root Directory** = `ui`
-3. Add Clerk env vars in Vercel (same as `ui/.env.local`)
-4. Add your Vercel URL to Clerk allowed domains
-5. Deploy → use `https://your-app.vercel.app` as demo URL
+See **[docs/7-deployment-guide.md](docs/7-deployment-guide.md)** for step-by-step instructions.
 
 ---
 
-## Deployment (details)
-
-### UI (Vercel recommended)
-
-1. Deploy `ui/` workspace
-2. Set Clerk env vars in Vercel dashboard
-3. Set `NEXT_PUBLIC_API_URL` to deployed backend URL
-
-### Backend (Railway / Render / Fly.io)
-
-1. Deploy `backend/` workspace
-2. Set `PORT` and `CORS_ORIGIN` (frontend URL)
-3. Ensure `db/data/` is writable or swap to cloud storage
-
----
-
-## Known Limitations & Next Steps
+## Known Limitations
 
 | Limitation | Next Step |
 | ---------- | --------- |
-| Rule-based agent (no live LLM by default) | Integrate OpenAI/Anthropic for richer analysis |
-| JSON file DB | Migrate to PostgreSQL/SQLite |
-| Automation skeletons are templates | Execute against mock OpenMRS API |
-| Clerk required for dashboard | Add demo mode for judges without accounts |
-| No CI/CD pipeline | Add GitHub Actions running `npm test` + Playwright |
+| Automation skeletons are templates | Execute against OpenMRS Reference Application |
+| LLM output varies by model | Use GPT-4o for highest quality |
+| Supabase optional | Configure for persistent history |
+| Long runs (60–90s) | Use GPT-4o Mini; ensure Vercel Pro for 120s timeout |
 
----
-
-## Submission Checklist
-
-- [x] Git repository with ui / backend / db
-- [x] README with setup and run instructions
-- [x] Auth configuration notes (Clerk)
-- [x] Local run instructions
-- [x] Sample input requirements
-- [x] Generated test plan export support
-- [x] 10 test cases for the assistant
-- [x] Agentic workflow evidence
-- [x] Known limitations documented
+Details: [docs/5-critical-review.md](docs/5-critical-review.md)
 
 ---
 

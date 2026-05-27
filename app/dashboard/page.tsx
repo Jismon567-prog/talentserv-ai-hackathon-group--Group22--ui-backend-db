@@ -52,8 +52,16 @@ import { useEffect, useRef, useState } from "react";
 
 import { CodeBlock } from "@/components/CodeBlock";
 import { CopyButton } from "@/components/CopyButton";
+import {
+  CoverageBreakdownPanel,
+  CoverageScoreBadge,
+} from "@/components/CoverageBreakdownPanel";
 import { GenerationHistoryPanel } from "@/components/GenerationHistoryPanel";
 import { SelfTestsPanel } from "@/components/SelfTestsPanel";
+import {
+  ValidationReportPanel,
+  ValidationScoreBadge,
+} from "@/components/ValidationReportPanel";
 import {
   HEURISTIC_STAGE_END_MS,
   STAGES,
@@ -80,7 +88,9 @@ import {
   SAMPLE_REQUIREMENTS,
   type SampleIconId,
 } from "@/lib/sample-requirements";
-import { normalizeAgentOutput } from "@/lib/normalize";
+import { validateTestCases } from "@/lib/validator";
+import { computeCoverageReport } from "@/lib/deterministic-coverage";
+import { coverageScoreTone } from "@/lib/coverage-engine";
 import type {
   AgentOutput,
   AutomationSkeleton,
@@ -88,6 +98,7 @@ import type {
   SafetyChecklist,
   TestCase,
 } from "@/lib/schemas";
+import { normalizeAgentOutput } from "@/lib/normalize";
 import {
   clearCurrentGeneration,
   cn,
@@ -95,6 +106,9 @@ import {
   saveCurrentGeneration,
   type CachedGenerationResult,
 } from "@/lib/utils";
+
+/** Must exceed server maxDuration + network buffer (see generate/route.ts). */
+const CLIENT_GENERATION_TIMEOUT_MS = 130_000;
 
 // ---------------------------------------------------------------------------
 // Sample requirements (quick start) — see lib/sample-requirements.ts
@@ -191,6 +205,7 @@ function Workspace() {
     Record<string, number | undefined>
   >({});
   const [sessionRestored, setSessionRestored] = useState(false);
+  const [revalidating, setRevalidating] = useState(false);
   const requestStartRef = useRef<number>(0);
   const hydratedRef = useRef(false);
 
@@ -303,6 +318,12 @@ function Workspace() {
     setResult(null);
     setLoading(true);
 
+    const controller = new AbortController();
+    const clientTimeout = window.setTimeout(
+      () => controller.abort(),
+      CLIENT_GENERATION_TIMEOUT_MS,
+    );
+
     try {
       const res = await fetch("/api/agent/generate", {
         method: "POST",
@@ -311,7 +332,18 @@ function Workspace() {
           requirement: requirement.trim(),
           model: selectedModel,
         }),
+        signal: controller.signal,
       });
+
+      const contentType = res.headers.get("content-type") ?? "";
+      if (!contentType.includes("application/json")) {
+        throw new Error(
+          res.ok
+            ? "Server returned an unexpected response format."
+            : `Server error (${res.status}). Try again or pick a different model.`,
+        );
+      }
+
       const json: ApiResponse = await res.json();
 
       const authoritative: Record<string, StageStatus> = Object.fromEntries(
@@ -351,23 +383,65 @@ function Workspace() {
         setStageStatuses(authoritative);
         setStageDurations(durations);
         setError(
-          `${json.error.code}: ${json.error.message}` +
-            (json.error.stage ? ` (stage: ${json.error.stage})` : ""),
+          json.error.code === "TIMEOUT"
+            ? `${json.error.message} Try GPT-4o Mini (default) or a shorter requirement.`
+            : `${json.error.code}: ${json.error.message}` +
+                (json.error.stage ? ` (stage: ${json.error.stage})` : ""),
         );
       }
     } catch (err) {
-      setError(
-        err instanceof Error
-          ? `Network error: ${err.message}`
-          : "Unknown network error.",
+      if (err instanceof Error && err.name === "AbortError") {
+        setError(
+          `Generation timed out after ${CLIENT_GENERATION_TIMEOUT_MS / 1000} seconds. The agent uses 2 fast LLM calls — try GPT-4o Mini or shorten the requirement.`,
+        );
+      } else {
+        setError(
+          err instanceof Error
+            ? `Network error: ${err.message}`
+            : "Unknown network error.",
+        );
+      }
+    } finally {
+      window.clearTimeout(clientTimeout);
+      setLoading(false);
+    }
+  }
+
+  async function handleRevalidate() {
+    if (!result) return;
+    setRevalidating(true);
+    try {
+      // Yield so the spinner paints before synchronous validation work.
+      await new Promise((r) => setTimeout(r, 0));
+      const validation = validateTestCases(result.data.testCases);
+      const coverage = {
+        ...computeCoverageReport(result.data.testCases),
+        coveragePct: validation.coverageScore / 100,
+      };
+      const updated: ApiSuccess = {
+        ...result,
+        data: {
+          ...result.data,
+          testCaseValidation: validation,
+          coverage,
+        },
+      };
+      setResult(updated);
+      persistCurrentGeneration(
+        requirement.trim(),
+        selectedModel,
+        updated,
+        stageStatuses,
+        stageDurations,
       );
     } finally {
-      setLoading(false);
+      setRevalidating(false);
     }
   }
 
   function handleLoadHistory(output: AgentOutput, req: string) {
     const normalized = normalizeAgentOutput(output);
+    const validation = validateTestCases(normalized.testCases);
     const modelFromMeta = normalized.meta.model;
     const model =
       modelFromMeta && LLM_MODELS.some((m) => m.id === modelFromMeta)
@@ -376,7 +450,10 @@ function Workspace() {
 
     const apiResult: ApiSuccess = {
       ok: true,
-      data: normalized,
+      data: {
+        ...normalized,
+        testCaseValidation: validation,
+      },
       stageTrace: [],
       validation: { passed: true, issues: [] },
       warnings: { droppedTestCases: [] },
@@ -425,9 +502,17 @@ function Workspace() {
             cases, synthetic OpenMRS data, and a Playwright skeleton.
           </p>
         </div>
-        <div className="hidden items-center gap-2 rounded-full border border-border bg-background px-3 py-1.5 text-xs text-muted-foreground md:flex">
-          <Sparkles className="h-3.5 w-3.5 text-blue-600" />
-          {getProviderLabel(activeModel.provider)} · {activeModel.label}
+        <div className="hidden items-center gap-2 md:flex">
+          {result?.data.testCaseValidation && (
+            <>
+              <CoverageScoreBadge report={result.data.testCaseValidation} />
+              <ValidationScoreBadge report={result.data.testCaseValidation} />
+            </>
+          )}
+          <div className="inline-flex items-center gap-2 rounded-full border border-border bg-background px-3 py-1.5 text-xs text-muted-foreground">
+            <Sparkles className="h-3.5 w-3.5 text-blue-600" />
+            {getProviderLabel(activeModel.provider)} · {activeModel.label}
+          </div>
         </div>
       </div>
 
@@ -458,7 +543,7 @@ function Workspace() {
           onLoad={handleLoadHistory}
         />
       ) : (
-        <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_17rem]">
+        <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_17rem]">
           <div className="min-w-0 space-y-6">
             <RequirementCard
               value={requirement}
@@ -474,6 +559,7 @@ function Workspace() {
                 statuses={stageStatuses}
                 loading={loading}
                 durations={stageDurations}
+                startedAt={loading ? requestStartRef.current : undefined}
               />
             )}
 
@@ -492,8 +578,18 @@ function Workspace() {
                   output={result.data}
                   onClear={handleClearCurrent}
                 />
+                <CoverageBreakdownPanel
+                  key={result.data.testCaseValidation.generatedAt}
+                  report={result.data.testCaseValidation}
+                />
+                <ValidationReportPanel
+                  key={`validation-${result.data.testCaseValidation.generatedAt}`}
+                  report={result.data.testCaseValidation}
+                  onRevalidate={() => void handleRevalidate()}
+                  revalidating={revalidating}
+                />
                 <ResultTabs
-                  key={result.data.meta.runId}
+                  key={`${result.data.meta.runId}-${result.data.testCaseValidation.generatedAt}`}
                   output={result.data}
                 />
               </>
@@ -502,7 +598,7 @@ function Workspace() {
 
           <GenerationHistoryPanel
             variant="sidebar"
-            className="hidden xl:block"
+            className="hidden xl:flex xl:sticky xl:top-6 xl:h-[calc(100vh-5.5rem)] xl:w-full xl:min-h-0"
             refreshKey={historyRefreshKey}
             onLoad={handleLoadHistory}
           />
@@ -563,103 +659,133 @@ function RequirementCard({
   loading: boolean;
 }) {
   const selectedMeta = LLM_MODELS.find((m) => m.id === model);
+  const charOk = value.trim().length >= 20;
 
   return (
-    <section className="rounded-xl border border-border bg-background p-5 shadow-sm">
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <FileText className="h-4 w-4 text-blue-600" />
-          <h2 className="text-sm font-medium">Healthcare requirement</h2>
+    <section className="overflow-hidden rounded-xl border border-border bg-background shadow-sm">
+      <div className="border-b border-border bg-gradient-to-r from-blue-600/5 to-transparent px-5 py-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-blue-600 text-white shadow-sm">
+              <FileText className="h-4 w-4" />
+            </div>
+            <div>
+              <h2 className="text-sm font-semibold">Healthcare requirement</h2>
+              <p className="text-xs text-muted-foreground">
+                Paste a user story — generates 6–10 cases in about 45–90 seconds
+              </p>
+            </div>
+          </div>
+          <span
+            className={cn(
+              "rounded-full px-2.5 py-1 text-xs font-medium",
+              charOk
+                ? "bg-emerald-100 text-emerald-800"
+                : "bg-muted text-muted-foreground",
+            )}
+          >
+            {value.length.toLocaleString()} chars
+            {!charOk && " · need 20+"}
+          </span>
         </div>
-        <span className="text-xs text-muted-foreground">
-          {value.length.toLocaleString()} chars
-        </span>
       </div>
 
+      <div className="p-5">
       <textarea
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        placeholder="Paste a user story or requirement, e.g. &quot;As a Registration Clerk, I want to register a new outpatient with name, gender, birthdate, and a generated OpenMRS ID …&quot;"
-        className="mt-3 h-44 w-full resize-y rounded-lg border border-border bg-muted/40 p-3 text-sm leading-relaxed text-foreground placeholder:text-muted-foreground focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+        placeholder="Example: As a Registration Clerk, I want to register a new outpatient with synthetic demographics and a TEST- identifier so visits and encounters can be created securely…"
+        className="min-h-[140px] w-full resize-y rounded-xl border border-border bg-muted/30 p-4 text-sm leading-relaxed text-foreground placeholder:text-muted-foreground focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 disabled:opacity-60"
         disabled={loading}
       />
 
-      <div className="mt-3 flex flex-wrap gap-2">
-        <span className="self-center text-xs font-medium text-muted-foreground">
-          Quick start:
-        </span>
+      <div className="mt-4 space-y-2">
+        <p className="text-xs font-medium text-muted-foreground">
+          Quick start — pick a clinical scenario:
+        </p>
+        <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
         {SAMPLE_REQUIREMENTS.map((s) => {
           const Icon = SAMPLE_ICONS[s.icon];
           return (
             <button
               key={s.label}
               type="button"
+              title={s.text}
               onClick={() => onChange(s.text)}
               disabled={loading}
-              className="inline-flex items-center gap-1.5 rounded-full border border-border bg-background px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:border-blue-500 hover:bg-blue-50 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+              className="group flex items-start gap-3 rounded-xl border border-border bg-background p-3 text-left transition-all hover:border-blue-400 hover:bg-blue-50/60 hover:shadow-sm disabled:cursor-not-allowed disabled:opacity-60"
             >
-              <Icon className="h-3 w-3" />
-              {s.label}
-              <span className="text-[10px] uppercase tracking-wide text-muted-foreground/70">
-                {s.area}
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-100 text-blue-700 group-hover:bg-blue-600 group-hover:text-white">
+                <Icon className="h-4 w-4" />
+              </span>
+              <span className="min-w-0">
+                <span className="block text-sm font-medium text-foreground">
+                  {s.label}
+                </span>
+                <span className="mt-0.5 block text-[10px] font-semibold uppercase tracking-wide text-blue-700/80">
+                  {s.area}
+                </span>
+                <span className="mt-1 line-clamp-2 text-[11px] leading-snug text-muted-foreground">
+                  {s.hint}
+                </span>
               </span>
             </button>
           );
         })}
+        </div>
       </div>
 
-      <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <p className="text-xs text-muted-foreground sm:max-w-md">
-          The agent runs six stages and emits structured artifacts. Patient
-          data is 100% synthetic.
+      <div className="mt-5 flex flex-col gap-4 border-t border-border pt-4 sm:flex-row sm:items-end sm:justify-between">
+        <p className="text-xs leading-relaxed text-muted-foreground sm:max-w-sm">
+          Tip: <strong className="font-medium text-foreground">GPT-4o Mini</strong> is the default — best balance of speed and quality. Runs typically finish within 90 seconds.
         </p>
-        <div className="flex flex-wrap items-center justify-end gap-2">
-          <label className="flex flex-col gap-1">
-            <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-              Model
+        <div className="flex flex-wrap items-end justify-end gap-2">
+          <label className="flex min-w-[14rem] flex-1 flex-col gap-1 sm:flex-none">
+            <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+              AI model
             </span>
             <select
               value={model}
               onChange={(e) => onModelChange(e.target.value as LlmModelId)}
               disabled={loading}
-              className="min-w-[16rem] rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 disabled:cursor-not-allowed disabled:opacity-60"
+              className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-sm text-foreground focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {LLM_MODEL_GROUPS.map((group) => (
                 <optgroup key={group.tier} label={group.label}>
                   {group.models.map((m) => (
                     <option key={m.id} value={m.id}>
-                      {m.label} ({m.description})
+                      {m.label} — {m.description}
                     </option>
                   ))}
                 </optgroup>
               ))}
             </select>
           </label>
-          {selectedMeta && (
-            <span className="hidden self-end pb-2 text-[11px] text-muted-foreground lg:inline">
-              {selectedMeta.tier === "free" ? "Free tier · " : ""}
-              {selectedMeta.description}
-            </span>
-          )}
           <button
             type="button"
             onClick={onGenerate}
-            disabled={loading || value.trim().length < 20}
-            className="inline-flex items-center gap-2 self-end rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-600/50"
+            disabled={loading || !charOk}
+            className="inline-flex min-w-[11rem] items-center justify-center gap-2 rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-md transition-all hover:bg-blue-700 hover:shadow-lg disabled:cursor-not-allowed disabled:bg-blue-400 disabled:shadow-none"
           >
             {loading ? (
               <>
                 <Loader2 className="h-4 w-4 animate-spin" />
-                Running pipeline…
+                Generating…
               </>
             ) : (
               <>
-                <Play className="h-4 w-4" />
-                Generate Test Artifacts
+                <Play className="h-4 w-4 fill-current" />
+                Generate Test Plan
               </>
             )}
           </button>
         </div>
+      </div>
+      {selectedMeta?.recommended && (
+        <p className="mt-2 text-right text-[11px] text-emerald-700">
+          ✓ Recommended for speed
+        </p>
+      )}
       </div>
     </section>
   );
@@ -776,7 +902,13 @@ function ExportToolbar({
           {output.testCases.length} test case
           {output.testCases.length === 1 ? "" : "s"}
           {" · "}
-          {Math.round(output.coverage.coveragePct * 100)}% coverage
+          {Math.round(
+            (output.testCaseValidation.coverageScore ??
+              output.coverage.coveragePct * 100),
+          )}
+          % coverage
+          {" · "}
+          QA {output.testCaseValidation.score}/100
         </span>
       </div>
       <div className="flex flex-wrap gap-2">
@@ -917,6 +1049,7 @@ function ResultTabs({ output }: { output: AgentOutput }) {
           <CoverageSafetyView
             coverage={output.coverage}
             safety={output.safety}
+            validation={output.testCaseValidation}
           />
         )}
       </div>
@@ -1028,24 +1161,41 @@ function AutomationView({ automation }: { automation: AutomationSkeleton }) {
 function CoverageSafetyView({
   coverage,
   safety,
+  validation,
 }: {
   coverage: CoverageReport;
   safety: SafetyChecklist;
+  validation?: AgentOutput["testCaseValidation"];
 }) {
-  const pct = Math.round(coverage.coveragePct * 100);
+  const pct = validation?.coverageScore ?? Math.round(coverage.coveragePct * 100);
+  const tone = coverageScoreTone(pct);
+  const toneBar =
+    tone === "green"
+      ? "bg-emerald-500"
+      : tone === "yellow"
+        ? "bg-amber-500"
+        : "bg-red-500";
+  const toneText =
+    tone === "green"
+      ? "text-emerald-700"
+      : tone === "yellow"
+        ? "text-amber-800"
+        : "text-red-700";
+
   return (
     <div className="grid gap-5 lg:grid-cols-3">
       <div className="space-y-5 lg:col-span-2">
         <div className="rounded-lg border border-border bg-background p-4">
           <div className="flex items-center justify-between">
             <div>
-              <div className="text-xs text-muted-foreground">Coverage</div>
-              <div className="text-2xl font-semibold tracking-tight">
+              <div className="text-xs text-muted-foreground">Coverage Score</div>
+              <div className={cn("text-2xl font-semibold tracking-tight", toneText)}>
                 {pct}%
               </div>
               <div className="text-xs text-muted-foreground">
                 {coverage.totalTestCases} total test case
                 {coverage.totalTestCases === 1 ? "" : "s"}
+                {pct > 85 ? " · Excellent" : pct >= 70 ? " · Adequate" : " · Needs expansion"}
               </div>
             </div>
             <div className="w-40">
@@ -1054,13 +1204,45 @@ function CoverageSafetyView({
               </div>
               <div className="h-2 overflow-hidden rounded-full bg-muted">
                 <div
-                  className="h-full rounded-full bg-blue-600 transition-all"
-                  style={{ width: `${pct}%` }}
+                  className={cn("h-full rounded-full transition-all", toneBar)}
+                  style={{ width: `${Math.min(100, pct)}%` }}
                 />
               </div>
             </div>
           </div>
         </div>
+
+        {validation?.coverageBreakdown && validation.coverageBreakdown.length > 0 && (
+          <div className="rounded-lg border border-border bg-background p-4">
+            <div className="text-sm font-medium">Coverage breakdown</div>
+            <ul className="mt-3 space-y-2">
+              {validation.coverageBreakdown.map((area) => {
+                const fill = area.covered
+                  ? Math.min(100, (area.count / area.minRequired) * 100)
+                  : Math.min(100, (area.count / area.minRequired) * 100);
+                return (
+                  <li key={area.id}>
+                    <div className="mb-1 flex justify-between text-xs">
+                      <span className="font-medium">{area.label}</span>
+                      <span className="text-muted-foreground">
+                        {area.count}/{area.minRequired}
+                      </span>
+                    </div>
+                    <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+                      <div
+                        className={cn(
+                          "h-full rounded-full",
+                          area.covered ? "bg-emerald-500" : "bg-amber-500",
+                        )}
+                        style={{ width: `${fill}%` }}
+                      />
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        )}
 
         <BarBlock
           title="By category"
@@ -1082,8 +1264,14 @@ function CoverageSafetyView({
 
         {coverage.gaps.length > 0 && (
           <div className="rounded-lg border border-border bg-background p-4">
-            <div className="text-sm font-medium">Gaps</div>
+            <div className="text-sm font-medium">Missing scenarios & gaps</div>
             <ul className="mt-2 space-y-2 text-xs">
+              {(validation?.missingScenarios ?? []).slice(0, 6).map((item) => (
+                <li key={item} className="flex items-start gap-2 text-amber-900">
+                  <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600" />
+                  <span>{item}</span>
+                </li>
+              ))}
               {coverage.gaps.map((g, i) => (
                 <li key={i} className="flex items-start gap-2">
                   <span

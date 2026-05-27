@@ -8,6 +8,7 @@ import {
   PRIVACY_SECURITY_RULES,
   TEST_CATEGORIES,
 } from "@/lib/openmrs-reference";
+import { analyzeCoverage } from "@/lib/coverage-engine";
 import type {
   AutomationSkeleton,
   CoverageGap,
@@ -46,17 +47,44 @@ export function computeCoverageReport(testCases: TestCase[]): CoverageReport {
     }
   }
 
-  const categoriesWithCases = TEST_CATEGORIES.filter((c) => byCategory[c] > 0).length;
-  const entitiesWithCases = OPENMRS_ENTITIES.filter((e) => byEntity[e] > 0).length;
-  const coveragePct = (categoriesWithCases + entitiesWithCases) / 14;
+  const analysis = analyzeCoverage(testCases);
+  const coveragePct = analysis.coverageScore / 100;
 
   const gaps: CoverageGap[] = [];
+
+  for (const area of analysis.coverageBreakdown.filter((a) => !a.covered)) {
+    gaps.push({
+      area: area.label,
+      reason: `Only ${area.count} case(s); need ≥${area.minRequired} for production coverage.`,
+      severity:
+        area.severity === "critical"
+          ? "high"
+          : area.severity === "important"
+            ? "medium"
+            : "low",
+    });
+  }
+
   for (const category of TEST_CATEGORIES) {
     if (byCategory[category] === 0) {
       gaps.push({
-        area: category,
+        area: `${category} category`,
         reason: `No ${category} test cases were generated.`,
         severity: category === "Functional" ? "high" : "medium",
+      });
+    }
+  }
+
+  for (const scenario of analysis.missingScenarios) {
+    if (
+      !gaps.some(
+        (g) => g.reason === scenario || g.area === scenario.slice(0, 40),
+      )
+    ) {
+      gaps.push({
+        area: "Recommended scenario",
+        reason: scenario,
+        severity: "medium",
       });
     }
   }
@@ -115,20 +143,20 @@ function evaluateRule(
       break;
     case "rbac-enforced": {
       const rbac = testCases.filter((tc) => tc.category === "Security");
-      status = hasRbacCase(testCases) && rbac.length >= 1 ? "pass" : "fail";
+      status = hasRbacCase(testCases) && rbac.length >= 2 ? "pass" : "fail";
       detail =
         rbac.length > 0
           ? `RBAC cases: ${rbac.map((tc) => tc.id).join(", ")}.`
-          : "Add Security cases with rbac tags and privilege assertions.";
+          : "Add ≥2 Security/RBAC cases with role and privilege assertions.";
       break;
     }
     case "audit-trail-required": {
       const audit = testCases.filter((tc) => tc.category === "Audit");
-      status = audit.length >= 1 ? "pass" : "fail";
+      status = audit.length >= 2 ? "pass" : "fail";
       detail =
         audit.length > 0
           ? `Audit cases: ${audit.map((tc) => tc.id).join(", ")}.`
-          : "Add at least one Audit case asserting write operations log actor + action.";
+          : "Add ≥2 Audit cases asserting write operations log actor + action.";
       break;
     }
     case "minimum-necessary":

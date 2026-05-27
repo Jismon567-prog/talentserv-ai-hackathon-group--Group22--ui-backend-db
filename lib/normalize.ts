@@ -20,10 +20,340 @@
  */
 
 import {
+  COMMON_ROLES,
   OPENMRS_ENTITIES,
+  PRIVILEGES,
   TEST_CATEGORIES,
+  TEST_PRIORITIES,
 } from "./openmrs-reference";
-import type { AgentOutput, AutomationSkeleton } from "./schemas";
+import type {
+  AgentOutput,
+  AutomationSkeleton,
+  TestCaseValidationReport,
+} from "./schemas";
+import { validateTestCases } from "./validator";
+
+const TC_ID_PATTERN = /^TC-[A-Z0-9]+-\d{3,}$/;
+
+type OpenMrsEntity = (typeof OPENMRS_ENTITIES)[number];
+type CommonRole = (typeof COMMON_ROLES)[number];
+type Privilege = (typeof PRIVILEGES)[number];
+
+const ENTITY_ALIASES: Record<string, OpenMrsEntity> = {
+  patient: "Patient",
+  patients: "Patient",
+  person: "Patient",
+  persons: "Patient",
+  demographics: "Patient",
+  "patient identifier": "PatientIdentifier",
+  patientidentifier: "PatientIdentifier",
+  identifier: "PatientIdentifier",
+  identifiers: "PatientIdentifier",
+  "patient id": "PatientIdentifier",
+  visit: "Visit",
+  visits: "Visit",
+  encounter: "Encounter",
+  encounters: "Encounter",
+  obs: "Obs",
+  observation: "Obs",
+  observations: "Obs",
+  concept: "Obs",
+  user: "User",
+  users: "User",
+  provider: "User",
+  role: "Role",
+  roles: "Role",
+  privilege: "Privilege",
+  privileges: "Privilege",
+  rbac: "Role",
+};
+
+const CATEGORY_ALIASES: Record<string, (typeof TEST_CATEGORIES)[number]> = {
+  functional: "Functional",
+  negative: "Negative",
+  validation: "Validation",
+  security: "Security",
+  privacy: "Privacy",
+  audit: "Audit",
+  "role-based": "Security",
+  rbac: "Security",
+};
+
+const PRIORITY_ALIASES: Record<string, (typeof TEST_PRIORITIES)[number]> = {
+  critical: "Critical",
+  high: "High",
+  medium: "Medium",
+  low: "Low",
+};
+
+function matchEnum<T extends string>(
+  raw: unknown,
+  allowed: readonly T[],
+  aliases: Record<string, T> = {},
+): T | undefined {
+  const value = String(raw ?? "").trim();
+  if (!value) return undefined;
+  const direct = allowed.find((item) => item === value);
+  if (direct) return direct;
+  const ci = allowed.find((item) => item.toLowerCase() === value.toLowerCase());
+  if (ci) return ci;
+  return aliases[value.toLowerCase()];
+}
+
+function splitTokens(value: string): string[] {
+  return value
+    .split(/[,;/|]+/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
+function entityToken(raw: unknown): string {
+  if (raw == null) return "";
+  if (typeof raw === "string") return raw.trim();
+  if (typeof raw === "object" && !Array.isArray(raw)) {
+    const obj = raw as Record<string, unknown>;
+    for (const key of ["entity", "name", "type", "object", "value", "id"]) {
+      if (typeof obj[key] === "string") return obj[key].trim();
+    }
+    return Object.keys(obj).join(", ");
+  }
+  return String(raw).trim();
+}
+
+function flattenRawList(raw: unknown): unknown[] {
+  if (raw == null) return [];
+  if (typeof raw === "string") {
+    return splitTokens(raw);
+  }
+  if (Array.isArray(raw)) {
+    return raw.flatMap((item) => {
+      if (typeof item === "string" && /[,;|]/.test(item)) return splitTokens(item);
+      return [item];
+    });
+  }
+  if (typeof raw === "object") {
+    const obj = raw as Record<string, unknown>;
+    const values = Object.values(obj);
+    if (values.every((v) => typeof v === "boolean")) {
+      return Object.entries(obj)
+        .filter(([, enabled]) => enabled)
+        .map(([key]) => key);
+    }
+    return [raw];
+  }
+  return [raw];
+}
+
+function normalizeEntityValue(raw: unknown): OpenMrsEntity | undefined {
+  for (const token of flattenRawList(raw)) {
+    const value = entityToken(token);
+    if (!value) continue;
+
+    const direct = OPENMRS_ENTITIES.find(
+      (entity) => entity.toLowerCase() === value.toLowerCase(),
+    );
+    if (direct) return direct;
+
+    const aliasKey = value.toLowerCase().replace(/\s+/g, " ");
+    if (ENTITY_ALIASES[aliasKey]) return ENTITY_ALIASES[aliasKey];
+
+    const partial = OPENMRS_ENTITIES.find((entity) =>
+      aliasKey.includes(entity.toLowerCase()),
+    );
+    if (partial) return partial;
+  }
+  return undefined;
+}
+
+function normalizeEntityList(raw: unknown): OpenMrsEntity[] {
+  const items = flattenRawList(raw);
+  const out: OpenMrsEntity[] = [];
+  const seen = new Set<string>();
+
+  for (const item of items) {
+    const entity = normalizeEntityValue(item);
+    if (entity && !seen.has(entity)) {
+      seen.add(entity);
+      out.push(entity);
+    }
+  }
+
+  return out.length > 0 ? out : ["Patient"];
+}
+
+function normalizeRoleList(raw: unknown): CommonRole[] {
+  const out: CommonRole[] = [];
+  const seen = new Set<string>();
+
+  for (const token of flattenRawList(raw)) {
+    const value = entityToken(token);
+    if (!value) continue;
+    const role =
+      COMMON_ROLES.find((known) => known.toLowerCase() === value.toLowerCase()) ??
+      COMMON_ROLES.find((known) => value.toLowerCase().includes(known.toLowerCase()));
+    if (role && !seen.has(role)) {
+      seen.add(role);
+      out.push(role);
+    }
+  }
+
+  return out;
+}
+
+function normalizePrivilegeList(raw: unknown): Privilege[] {
+  const out: Privilege[] = [];
+  const seen = new Set<string>();
+
+  for (const token of flattenRawList(raw)) {
+    const value = entityToken(token);
+    if (!value) continue;
+    const privilege =
+      PRIVILEGES.find((known) => known.toLowerCase() === value.toLowerCase()) ??
+      PRIVILEGES.find((known) => value.toLowerCase().includes(known.toLowerCase()));
+    if (privilege && !seen.has(privilege)) {
+      seen.add(privilege);
+      out.push(privilege);
+    }
+  }
+
+  return out;
+}
+
+function readOpenMrsRelevance(item: Record<string, unknown>): Record<string, unknown> {
+  const candidates = [
+    item.openmrsRelevant,
+    item.openMRSRelevant,
+    item.openmrs_relevant,
+    item.relevant,
+  ];
+  for (const candidate of candidates) {
+    if (candidate && typeof candidate === "object") {
+      return asObj(candidate);
+    }
+  }
+  return {};
+}
+
+/** Coerce common LLM id slips into `TC-AREA-001` before strict Zod validation. */
+export function normalizeTestCaseId(raw: unknown, fallbackIndex: number): string {
+  let id = String(raw ?? "")
+    .trim()
+    .toUpperCase()
+    .replace(/[\s_]+/g, "-")
+    .replace(/-+/g, "-");
+
+  const tcMatch = id.match(/^TC-([A-Z0-9]+)-(\d+)$/);
+  if (tcMatch) {
+    const [, area, seq] = tcMatch;
+    return `TC-${area}-${seq.padStart(3, "0")}`;
+  }
+
+  const shortMatch = id.match(/^([A-Z0-9]+)-(\d+)$/);
+  if (shortMatch) {
+    const [, area, seq] = shortMatch;
+    return `TC-${area}-${seq.padStart(3, "0")}`;
+  }
+
+  const digitsOnly = id.match(/^(\d+)$/);
+  if (digitsOnly) {
+    return `TC-GEN-${digitsOnly[1].padStart(3, "0")}`;
+  }
+
+  if (TC_ID_PATTERN.test(id)) return id;
+  return `TC-GEN-${String(fallbackIndex + 1).padStart(3, "0")}`;
+}
+
+function normalizeTestCaseItem(raw: unknown, index: number): Record<string, unknown> {
+  const item = asObj(raw);
+  const relevance = readOpenMrsRelevance(item);
+
+  const steps = ensureArray<unknown>(item.steps)
+    .map((stepRaw, stepIndex) => {
+      const step = asObj(stepRaw);
+      const stepNum =
+        typeof step.step === "number"
+          ? step.step
+          : Number.parseInt(String(step.step ?? stepIndex + 1), 10) || stepIndex + 1;
+      const action = String(step.action ?? step.description ?? "").trim();
+      const expected = String(step.expected ?? step.expectedResult ?? "").trim();
+      if (!action || !expected) return null;
+      return {
+        ...step,
+        step: stepNum,
+        action,
+        expected,
+      };
+    })
+    .filter((step): step is { step: number; action: string; expected: string } =>
+      step != null,
+    );
+
+  const normalizedSteps =
+    steps.length > 0
+      ? steps
+      : [
+          {
+            step: 1,
+            action: "Execute the scenario under test in OpenMRS.",
+            expected: "The system behaves as described in the expected result.",
+          },
+        ];
+
+  const scenario =
+    String(item.scenario ?? item.title ?? item.name ?? "").trim() ||
+    `Verify OpenMRS workflow for test case ${index + 1}`;
+
+  return {
+    ...item,
+    id: normalizeTestCaseId(item.id, index),
+    scenario,
+    category:
+      matchEnum(item.category, TEST_CATEGORIES, CATEGORY_ALIASES) ?? "Functional",
+    priority:
+      matchEnum(item.priority, TEST_PRIORITIES, PRIORITY_ALIASES) ?? "Medium",
+    preconditions: ensureArray<unknown>(item.preconditions).map((p) =>
+      String(p ?? "").trim(),
+    ),
+    steps: normalizedSteps,
+    expectedResult:
+      String(item.expectedResult ?? item.expected ?? scenario).trim() ||
+      "Expected outcome is observed.",
+    openmrsRelevant: {
+      entities: normalizeEntityList(relevance.entities),
+      roles: normalizeRoleList(relevance.roles),
+      workflows: flattenRawList(relevance.workflows).map((w) => entityToken(w)),
+      privileges: normalizePrivilegeList(relevance.privileges),
+    },
+    tags: ensureArray<unknown>(item.tags).map((tag) => String(tag ?? "").trim()),
+    traceabilityRef:
+      item.traceabilityRef != null
+        ? String(item.traceabilityRef).trim()
+        : undefined,
+  };
+}
+
+/**
+ * Normalize Stage 3 `{ testCases: [...] }` items before `TestCaseSchema` validation.
+ * Fixes common LLM slips: short ids (`TC-REG-1`), casing, enum aliases, step numbers.
+ */
+export function normalizeTestCasesPayload(raw: unknown): unknown[] {
+  if (!raw || typeof raw !== "object") return [];
+  const root = asObj(raw);
+  const cases = "testCases" in root ? root.testCases : raw;
+  const seenIds = new Set<string>();
+
+  return ensureArray<unknown>(cases).map((item, index) => {
+    const normalized = normalizeTestCaseItem(item, index);
+    let id = String(normalized.id);
+    while (seenIds.has(id)) {
+      const next = index + seenIds.size + 1;
+      id = normalizeTestCaseId(`TC-GEN-${next}`, next - 1);
+      normalized.id = id;
+    }
+    seenIds.add(id);
+    return normalized;
+  });
+}
 
 /** Wrap a single value in an array; pass arrays through; null/undefined → []. */
 const ensureArray = <T,>(v: T | T[] | undefined | null): T[] =>
@@ -177,10 +507,29 @@ export function normalizeAutomationPayload(raw: unknown): AutomationSkeleton {
   return notes ? { uiTest, apiTest, notes } : { uiTest, apiTest };
 }
 
-/** Ensure `AgentOutput.automation` is present and flattened after cache/history loads. */
+/** Ensure validation report exists; recompute when missing or stale (cache/history). */
+export function ensureTestCaseValidation(
+  output: Pick<AgentOutput, "testCases" | "testCaseValidation">,
+): TestCaseValidationReport {
+  const existing = output.testCaseValidation;
+  if (
+    existing?.checks?.length &&
+    typeof existing.coverageScore === "number" &&
+    existing.coverageBreakdown?.length
+  ) {
+    return existing;
+  }
+  return validateTestCases(output.testCases);
+}
+
+/** Ensure AgentOutput is complete after cache/history loads. */
 export function normalizeAgentOutput(output: AgentOutput): AgentOutput {
-  return {
+  const normalized = {
     ...output,
     automation: normalizeAutomationPayload(output.automation),
+  };
+  return {
+    ...normalized,
+    testCaseValidation: ensureTestCaseValidation(normalized),
   };
 }
