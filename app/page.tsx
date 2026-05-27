@@ -1,0 +1,276 @@
+import { SignedIn, SignedOut, UserButton } from "@clerk/nextjs";
+import {
+  Activity,
+  ArrowRight,
+  Database,
+  FlaskConical,
+  Github,
+  ScrollText,
+  ShieldCheck,
+  Sparkles,
+  Stethoscope,
+  TestTube2,
+} from "lucide-react";
+import Link from "next/link";
+
+/**
+ * Landing page
+ * ------------
+ * Marketing surface for the agent. The Clerk middleware does *not* protect
+ * "/" — we want unauthenticated visitors to see what the product does and
+ * decide to sign up. Once signed in, the primary CTA becomes
+ * "Go to dashboard".
+ *
+ * Sections (top → bottom):
+ *   1. Header with logo + auth controls.
+ *   2. Hero with tagline + primary CTAs.
+ *   3. Pipeline-stages strip — six small cards showing the six agent stages.
+ *   4. Feature grid — what you get (test cases, synthetic data, automation,
+ *      coverage, safety, role-based coverage).
+ *   5. Footer.
+ *
+ * Pure server component (no client state) — keeps the bundle tiny and the
+ * page snappy.
+ */
+
+const PIPELINE = [
+  { n: 1, label: "Requirement analysis", desc: "Actors, entities, workflows." },
+  { n: 2, label: "Risk & privacy plan", desc: "PHI, RBAC, threats." },
+  { n: 3, label: "Test cases", desc: "Functional → Audit." },
+  { n: 4, label: "Synthetic data", desc: "Patients, visits, encounters." },
+  { n: 5, label: "Automation", desc: "Playwright + REST." },
+  { n: 6, label: "Coverage & safety", desc: "Gated release." },
+];
+
+const FEATURES = [
+  {
+    icon: FlaskConical,
+    title: "Six categories of test cases",
+    body: "Functional, Negative, Validation, Security, Privacy, and Audit cases generated per requirement — with minimum-coverage floors enforced.",
+  },
+  {
+    icon: Database,
+    title: "100% synthetic OpenMRS data",
+    body: "Every patient is flagged synthetic and every identifier prefixed TEST-. The pipeline refuses anything that looks like real PHI.",
+  },
+  {
+    icon: TestTube2,
+    title: "Runnable Playwright + REST",
+    body: "A small, clean Playwright UI example and a fetch-based REST example you can copy into a test repo and run against an OpenMRS test deployment.",
+  },
+  {
+    icon: ScrollText,
+    title: "Coverage & gap report",
+    body: "Counts by category, by entity, and by workflow — plus an explicit gap list so reviewers can see what isn't covered yet.",
+  },
+  {
+    icon: ShieldCheck,
+    title: "Hard-gated safety checklist",
+    body: "Each privacy and security rule is evaluated against the artifact set. Any must-rule failure blocks the release at the schema level.",
+  },
+  {
+    icon: Stethoscope,
+    title: "Role-based access coverage",
+    body: "For every role under test the agent emits one access-granted and one access-denied case so RBAC regressions surface early.",
+  },
+];
+
+export default function HomePage() {
+  return (
+    <div className="flex min-h-screen flex-col bg-gradient-to-b from-background via-background to-blue-50/40">
+      <header className="flex h-16 items-center justify-between border-b border-border bg-background/80 px-6 backdrop-blur">
+        <Link href="/" className="flex items-center gap-2 font-semibold">
+          <span className="flex h-7 w-7 items-center justify-center rounded-md bg-blue-600 text-white">
+            <Activity className="h-4 w-4" />
+          </span>
+          <span>OpenMRS AI Agent</span>
+        </Link>
+
+        <nav className="flex items-center gap-3">
+          <SignedOut>
+            <Link
+              href="/sign-in"
+              className="text-sm font-medium text-muted-foreground hover:text-foreground"
+            >
+              Sign in
+            </Link>
+            <Link
+              href="/sign-up"
+              className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-blue-700"
+            >
+              Get started
+              <ArrowRight className="h-4 w-4" />
+            </Link>
+          </SignedOut>
+          <SignedIn>
+            <Link
+              href="/dashboard"
+              className="text-sm font-medium text-muted-foreground hover:text-foreground"
+            >
+              Dashboard
+            </Link>
+            <UserButton afterSignOutUrl="/" />
+          </SignedIn>
+        </nav>
+      </header>
+
+      <main className="flex-1">
+        {/* Hero */}
+        <section className="mx-auto max-w-5xl px-6 pt-20 text-center sm:pt-28">
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-background px-3 py-1 text-xs font-medium text-muted-foreground shadow-sm">
+            <Sparkles className="h-3.5 w-3.5 text-blue-600" />
+            OpenMRS · Playwright · 100% synthetic data
+          </span>
+          <h1 className="mt-6 text-balance text-4xl font-semibold tracking-tight sm:text-5xl">
+            Healthcare test automation,{" "}
+            <span className="bg-gradient-to-r from-blue-600 via-violet-600 to-pink-500 bg-clip-text text-transparent">
+              generated by AI.
+            </span>
+          </h1>
+          <p className="mx-auto mt-5 max-w-2xl text-balance text-muted-foreground">
+            Turn a user story into Functional, Negative, Validation, Security,
+            Privacy, and Audit test cases — with synthetic OpenMRS Patients,
+            Visits, and Encounters, runnable Playwright + REST skeletons, and a
+            gated coverage &amp; safety report.
+          </p>
+
+          <div className="mt-8 flex items-center justify-center gap-3">
+            <SignedOut>
+              <Link
+                href="/sign-up"
+                className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-5 py-2.5 text-sm font-medium text-white shadow-sm hover:bg-blue-700"
+              >
+                Create account
+                <ArrowRight className="h-4 w-4" />
+              </Link>
+              <Link
+                href="/sign-in"
+                className="rounded-md border border-border bg-background px-5 py-2.5 text-sm font-medium shadow-sm hover:bg-accent"
+              >
+                Sign in
+              </Link>
+            </SignedOut>
+            <SignedIn>
+              <Link
+                href="/dashboard"
+                className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-5 py-2.5 text-sm font-medium text-white shadow-sm hover:bg-blue-700"
+              >
+                Go to dashboard
+                <ArrowRight className="h-4 w-4" />
+              </Link>
+            </SignedIn>
+          </div>
+        </section>
+
+        {/* Pipeline strip */}
+        <section className="mx-auto mt-20 max-w-6xl px-6">
+          <div className="text-center">
+            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              The six-stage pipeline
+            </p>
+            <h2 className="mt-2 text-xl font-semibold tracking-tight sm:text-2xl">
+              Each requirement runs through a deterministic, auditable workflow.
+            </h2>
+          </div>
+
+          <ol className="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
+            {PIPELINE.map((s) => (
+              <li
+                key={s.n}
+                className="group relative flex flex-col gap-2 rounded-xl border border-border bg-background p-4 shadow-sm transition-shadow hover:shadow-md"
+              >
+                <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-blue-100 text-xs font-semibold text-blue-700">
+                  {s.n}
+                </span>
+                <div>
+                  <div className="text-sm font-medium">{s.label}</div>
+                  <div className="text-xs text-muted-foreground">{s.desc}</div>
+                </div>
+              </li>
+            ))}
+          </ol>
+        </section>
+
+        {/* Features */}
+        <section className="mx-auto mt-20 max-w-6xl px-6 pb-24">
+          <div className="text-center">
+            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              What you get
+            </p>
+            <h2 className="mt-2 text-xl font-semibold tracking-tight sm:text-2xl">
+              Demo-ready artifacts, every run.
+            </h2>
+          </div>
+
+          <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {FEATURES.map(({ icon: Icon, title, body }) => (
+              <article
+                key={title}
+                className="rounded-xl border border-border bg-background p-5 shadow-sm transition-shadow hover:shadow-md"
+              >
+                <span className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-blue-100 text-blue-700">
+                  <Icon className="h-4 w-4" />
+                </span>
+                <h3 className="mt-3 text-sm font-medium">{title}</h3>
+                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                  {body}
+                </p>
+              </article>
+            ))}
+          </div>
+
+          {/* Closing CTA */}
+          <div className="mt-12 flex flex-col items-center justify-between gap-4 rounded-2xl border border-border bg-gradient-to-br from-blue-600 to-violet-600 p-6 text-white shadow-sm sm:flex-row sm:p-8">
+            <div>
+              <h3 className="text-lg font-semibold">
+                Generate your first artifact set in a single click.
+              </h3>
+              <p className="mt-1 text-sm text-blue-100">
+                Sign in, paste a user story, and watch the six-stage pipeline
+                run. Patient data is 100% synthetic.
+              </p>
+            </div>
+            <SignedOut>
+              <Link
+                href="/sign-up"
+                className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-white px-5 py-2.5 text-sm font-semibold text-blue-700 shadow-sm hover:bg-blue-50"
+              >
+                Get started
+                <ArrowRight className="h-4 w-4" />
+              </Link>
+            </SignedOut>
+            <SignedIn>
+              <Link
+                href="/dashboard"
+                className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-white px-5 py-2.5 text-sm font-semibold text-blue-700 shadow-sm hover:bg-blue-50"
+              >
+                Go to dashboard
+                <ArrowRight className="h-4 w-4" />
+              </Link>
+            </SignedIn>
+          </div>
+        </section>
+      </main>
+
+      <footer className="border-t border-border bg-background/80 px-6 py-6 text-xs text-muted-foreground backdrop-blur">
+        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <Activity className="h-3.5 w-3.5 text-blue-600" />
+            <span>
+              OpenMRS AI Test Automation Agent · 100% synthetic patient data
+            </span>
+          </div>
+          <a
+            href="https://openmrs.org/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 hover:text-foreground"
+          >
+            <Github className="h-3.5 w-3.5" />
+            About OpenMRS
+          </a>
+        </div>
+      </footer>
+    </div>
+  );
+}
