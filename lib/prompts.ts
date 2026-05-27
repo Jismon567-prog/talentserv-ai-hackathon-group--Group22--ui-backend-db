@@ -36,6 +36,8 @@ import {
 } from "./openmrs-reference";
 import {
   compactJson,
+  slimAnalysisForPipeline,
+  slimRiskPlanForTestGen,
   slimTestCasesForAutomation,
   slimTestCasesForSyntheticData,
 } from "./prompt-context";
@@ -300,6 +302,61 @@ const riskAndPrivacyPlanner: StagePrompt<RiskPlannerInput> = {
 };
 
 // ---------------------------------------------------------------------------
+// Combined Stage 1+2 — single LLM call (faster pipeline)
+// ---------------------------------------------------------------------------
+
+const combinedAnalysisRiskBody = `
+COMBINED STAGE — REQUIREMENT ANALYSIS + RISK & PRIVACY PLAN
+Parse the requirement AND produce the risk plan in ONE response. Keep both objects concise.
+
+OUTPUT JSON
+{
+  "analysis": {
+    "summary": string,
+    "actors": [CommonRole, ...],
+    "entitiesTouched": [OpenMrsEntity, ...],
+    "workflows": [string, ...],
+    "actions": [{ "verb": string, "object": string, "entity": OpenMrsEntity }],
+    "acceptanceCriteria": [string, ...],
+    "ambiguities": [{ "question": string, "assumption": string }],
+    "clinicalSafetyConcerns": [string, ...],
+    "phiTouched": [PhiField, ...],
+    "notes": string
+  },
+  "riskPlan": {
+    "phiFieldsInvolved": [PhiField, ...],
+    "rbacMatrix": [{ "role": CommonRole, "allowedPrivileges": [Privilege, ...], "deniedPrivileges": [Privilege, ...] }],
+    "threats": [{ "id": "T-001", "category": "Spoofing"|"Tampering"|"Repudiation"|"InformationDisclosure"|"DenialOfService"|"ElevationOfPrivilege", "description": string, "impact": "low"|"medium"|"high", "likelihood": "low"|"medium"|"high", "mitigation": string }],
+    "clinicalSafetyRisks": [{ "id": string, "description": string, "mitigation": string }],
+    "requiredTestCategories": [TestCategory, ...],
+    "rolesUnderTest": [CommonRole, ...],
+    "safetyAssertionsRequired": [{ "ruleId": string, "rationale": string }],
+    "notes": string
+  }
+}
+
+RULES — be concise; max 5 acceptanceCriteria, max 4 threats, max 3 rbacMatrix rows.
+Include Functional + Negative + Validation + Security + Privacy + Audit in requiredTestCategories when relevant.
+`.trim();
+
+/** Single-call messages for combined analysis + risk planning. */
+export function buildCombinedAnalysisRiskMessages(
+  input: RequirementAnalyzerInput,
+): StageMessages {
+  return {
+    system: composeSystemPrompt(combinedAnalysisRiskBody),
+    user: [
+      `REQUIREMENT_ID: ${input.requirementId ?? "(none)"}`,
+      "",
+      "REQUIREMENT_TEXT:",
+      input.requirementText.trim(),
+      "",
+      "Return { analysis, riskPlan } JSON only.",
+    ].join("\n"),
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Stage 3 — Functional & Security Test Case Generator
 // ---------------------------------------------------------------------------
 
@@ -346,14 +403,17 @@ HEALTHCARE QUALITY BAR
 - traceabilityRef: map each case to a Stage 1 acceptanceCriteria index (AC-001, AC-002, …).
 - tags: include at least one clinical tag (e.g. "vitals", "drug-order", "registration") plus category hint ("rbac", "wrong-patient").
 
-MINIMUM COVERAGE (target 8–14 total cases — breadth over depth)
-- ≥ 1 Functional happy-path per workflow touched.
-- ≥ 1 Negative and ≥ 1 Validation case.
-- ≥ 1 Security case (RBAC) with tags ["rbac"] when roles vary.
-- ≥ 1 Privacy case when PHI fields are involved.
-- ≥ 1 Audit case when writes occur.
-- Role-based: when multiple roles exist, one access-granted AND one access-denied Security case.
-- Keep ≤ 3 steps per test case unless a longer flow is essential.
+MINIMUM COVERAGE (target 6–10 focused, high-value cases — do NOT exceed 10)
+Generate 6–10 distinct test cases. Quality over quantity: each case must map to a risk or acceptance criterion.
+
+Distribution (combine categories where sensible):
+- ≥ 2 Functional happy-path · ≥ 1 Negative · ≥ 1 Validation
+- ≥ 1 Security/RBAC (tag "rbac") · ≥ 1 Privacy · ≥ 1 Audit
+- ≥ 1 Integration case (Patient + Visit + Encounter in entities, tag "integration")
+- Optional: 1 Performance or Regression tag if requirement implies it
+
+Entity coverage — reference Patient, Visit, Encounter, User/Role/Privilege across the suite.
+Steps: ≤ 2 per case. One-line preconditions. Be terse but clinically precise.
 
 STEP STYLE
 - Action: imperative, singular, names UI module or REST resource.
@@ -375,13 +435,12 @@ const testCaseGenerator: StagePrompt<TestCaseGeneratorInput> = {
   buildUserPrompt: ({ analysis, riskPlan }) =>
     [
       "STAGE_1_ANALYSIS (JSON):",
-      compactJson(analysis),
+      compactJson(slimAnalysisForPipeline(analysis)),
       "",
       "STAGE_2_RISK_AND_PRIVACY_PLAN (JSON):",
-      compactJson(riskPlan),
+      compactJson(slimRiskPlanForTestGen(riskPlan)),
       "",
-      "Produce the testCases JSON only. Cover threats and roles from the risk plan.",
-      "Keep cases concise (≤ 3 steps each). Use synthetic IDs only.",
+      "Produce testCases JSON only. Exactly 6–10 cases, ≤2 steps each. High-value coverage only. Synthetic IDs.",
     ].join("\n"),
 };
 
@@ -462,7 +521,7 @@ const syntheticDataGenerator: StagePrompt<SyntheticDataGeneratorInput> = {
       riskPlan ? "\nSTAGE_2_RISK_AND_PRIVACY_PLAN (JSON):" : "",
       riskPlan ? compactJson(riskPlan) : "",
       "",
-      "Return the syntheticData JSON only. Minimal dataset: 1–2 patients plus only visits/encounters/obs/users needed. 100% synthetic — no real PHI.",
+      "Return the syntheticData JSON only. Minimal dataset: 1 patient + only visits/users needed. 100% synthetic.",
     ]
       .filter(Boolean)
       .join("\n"),

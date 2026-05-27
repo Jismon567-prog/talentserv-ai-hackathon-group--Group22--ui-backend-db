@@ -31,7 +31,7 @@ export const LLM_MODELS: readonly LlmModelDefinition[] = [
   {
     id: "gpt-4o-mini",
     label: "GPT-4o Mini",
-    description: "Fast & Cheap — Recommended",
+    description: "Fast & Cheap",
     provider: "openai",
     apiModelId: "gpt-4o-mini",
     tier: "paid",
@@ -53,7 +53,6 @@ export const LLM_MODELS: readonly LlmModelDefinition[] = [
     provider: "groq",
     apiModelId: "llama-3.3-70b-versatile",
     tier: "free",
-    recommended: true,
   },
   {
     id: "llama-3.1-8b-instant",

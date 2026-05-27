@@ -204,6 +204,48 @@ export const TestCaseSchema = z.object({
 export type TestCase = z.infer<typeof TestCaseSchema>;
 
 // ---------------------------------------------------------------------------
+// Test case quality validation (post-generation QA report)
+// ---------------------------------------------------------------------------
+
+export const TestCaseValidationCheckSchema = z.object({
+  id: z.string(),
+  label: z.string(),
+  severity: z.enum(["critical", "warning", "info"]),
+  passed: z.boolean(),
+  message: z.string(),
+  suggestion: z.string().optional(),
+  testCaseIds: z.array(z.string()).optional(),
+});
+export type TestCaseValidationCheck = z.infer<typeof TestCaseValidationCheckSchema>;
+
+export const CoverageAreaResultSchema = z.object({
+  id: z.string(),
+  label: z.string(),
+  covered: z.boolean(),
+  count: z.number().int().nonnegative(),
+  minRequired: z.number().int().nonnegative(),
+  severity: z.enum(["critical", "important", "recommended"]),
+});
+export type CoverageAreaResult = z.infer<typeof CoverageAreaResultSchema>;
+
+export const TestCaseValidationReportSchema = z.object({
+  /** Structural / quality score from validation checks (0–100). */
+  score: z.number().min(0).max(100),
+  /** Breadth score across categories, entities, and suite size (0–100). */
+  coverageScore: z.number().min(0).max(100),
+  passed: z.boolean(),
+  generatedAt: IsoDateTimeSchema,
+  summary: NonEmptyStringSchema,
+  checks: z.array(TestCaseValidationCheckSchema),
+  suggestions: z.array(z.string()).default([]),
+  categoryCoverage: z.record(TestCategorySchema, z.number().int().nonnegative()),
+  coverageBreakdown: z.array(CoverageAreaResultSchema).default([]),
+  missingScenarios: z.array(z.string()).default([]),
+  duplicateIds: z.array(z.string()).default([]),
+});
+export type TestCaseValidationReport = z.infer<typeof TestCaseValidationReportSchema>;
+
+// ---------------------------------------------------------------------------
 // Synthetic data bundle
 // ---------------------------------------------------------------------------
 
@@ -365,6 +407,7 @@ export const AgentOutputSchema = z
     meta: AgentRunMetaSchema,
     stages: z.array(PipelineStageSchema).min(1),
     testCases: z.array(TestCaseSchema).min(1),
+    testCaseValidation: TestCaseValidationReportSchema,
     syntheticData: SyntheticDataSchema,
     automation: AutomationSkeletonSchema,
     coverage: CoverageReportSchema,

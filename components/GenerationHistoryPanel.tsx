@@ -114,11 +114,11 @@ export function GenerationHistoryPanel({
     <section
       className={cn(
         "rounded-xl border border-border bg-background shadow-sm",
-        isSidebar ? "flex flex-col" : "",
+        isSidebar && "flex min-h-0 flex-col",
         className,
       )}
     >
-      <div className="flex items-center justify-between border-b border-border px-4 py-3">
+      <div className="flex shrink-0 items-center justify-between border-b border-border px-4 py-3">
         <div className="flex items-center gap-2">
           <History className="h-4 w-4 text-blue-600" />
           <h2 className="text-sm font-medium">
@@ -140,7 +140,12 @@ export function GenerationHistoryPanel({
         </button>
       </div>
 
-      <div className={cn("p-3", isSidebar ? "max-h-[28rem] overflow-y-auto" : "")}>
+      <div
+        className={cn(
+          "p-3",
+          isSidebar && "min-h-0 flex-1 overflow-y-auto",
+        )}
+      >
         {loading && items.length === 0 ? (
           <div className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" />

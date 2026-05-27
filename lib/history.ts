@@ -11,6 +11,7 @@ import type {
   SyntheticData,
   TestCase,
 } from "./schemas";
+import { validateTestCases } from "./validator";
 import { getSupabaseAdmin, isSupabaseConfigured } from "./supabase";
 
 /** Lightweight row for history lists in the dashboard. */
@@ -112,6 +113,7 @@ export function generationRecordToAgentOutput(
     },
     stages: [],
     testCases: record.testCases,
+    testCaseValidation: validateTestCases(record.testCases),
     syntheticData: record.syntheticData,
     automation: record.automationSkeleton,
     coverage: record.coverage ?? {

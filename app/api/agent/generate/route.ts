@@ -3,14 +3,13 @@
  * ------------------------
  * Orchestrates the six-stage OpenMRS AI Healthcare Test-Automation Agent.
  *
- * Pipeline (each stage is one OpenAI chat-completion call):
+ * Pipeline (two LLM calls + local stages):
  *
- *   1. Requirement Analyzer
- *   2. Risk & Privacy Planner
- *   3. Functional & Security Test Case Generator
- *   4. Synthetic Test Data Generator  ─┐
- *   5. Automation Skeleton Writer       ├─ run in parallel after Stage 3
- *   6. Coverage & Safety Reviewer       └─ computed locally (no LLM call)
+ *   1+2. Requirement Analyzer + Risk Planner  ── single combined call
+ *   3.   Test Case Generator
+ *   4.   Synthetic Data Generator             ── local (no LLM)
+ *   5.   Automation Skeleton Writer           ── local (no LLM)
+ *   6.   Coverage & Safety Reviewer           ── local (no LLM)
  *
  * Inputs:    { requirement: string, requirementId?: string, model?: string }
  * Outputs:   { ok: true,  data: AgentOutput,  stageTrace: StageTraceEntry[], validation: ... }
@@ -19,8 +18,7 @@
  * Notes:
  * - Supports OpenAI (paid) and Groq (free tier) via the OpenAI SDK.
  * - Model is selected by the client (default: gpt-4o-mini).
- * - We also defensively parse out a JSON object in case the model wraps output
- *   in a fenced block.
+ * - JSON responses are parsed defensively (optional markdown fences stripped).
  * - We auto-correct deterministic fields (coverage.totalTestCases,
  *   safety.passed) before final Zod validation so a small model slip does
  *   not invalidate an otherwise good run.
@@ -35,6 +33,7 @@ import { z } from "zod";
 
 import {
   normalizeSyntheticDataPayload,
+  normalizeTestCasesPayload,
 } from "@/lib/normalize";
 import {
   computeCoverageReport,
@@ -47,9 +46,13 @@ import {
   type LlmModelId,
 } from "@/lib/llm-models";
 import { resolveLlm } from "@/lib/llm-client";
+import { buildAutomationSkeleton } from "@/lib/automation-templates";
+import { buildSyntheticData } from "@/lib/synthetic-data-templates";
+import { validateTestCases } from "@/lib/validator";
 import {
   PROMPT_STAGE_TO_PIPELINE,
   STAGE_PROMPTS,
+  buildCombinedAnalysisRiskMessages,
   buildStageMessages,
   type PromptStageId,
   type StageInputMap,
@@ -73,8 +76,8 @@ import {
 // The OpenAI SDK + Node crypto needs the Node runtime.
 export const runtime = "nodejs";
 
-// Five LLM calls (stages 4+5 run in parallel; stage 6 is computed locally).
-export const maxDuration = 300;
+// Two LLM calls; stages 4–6 are computed locally. Allow headroom for cold starts.
+export const maxDuration = 120;
 
 // ---------------------------------------------------------------------------
 // LLM configuration
@@ -82,23 +85,20 @@ export const maxDuration = 300;
 
 const AGENT_VERSION = "0.1.0";
 
-/**
- * Per-call timeout. gpt-4o / gpt-4o-mini usually reply in 5-30s; Stage 3/4/5
- * return larger JSON payloads so we allow up to 90s per stage.
- */
-const PER_CALL_TIMEOUT_MS = 90_000;
+/** OpenAI SDK timeout per HTTP request (test-case stage needs the most time). */
+const LLM_REQUEST_TIMEOUT_MS = 55_000;
 
 /** Low temperature for deterministic, audit-friendly test generation. */
 const TEMPERATURE = 0.2;
 
 /** Cap output tokens per stage — shorter responses finish sooner. */
 const STAGE_MAX_TOKENS: Record<PromptStageId, number> = {
-  "requirement-analyzer": 2048,
-  "risk-and-privacy-planner": 2048,
-  "test-case-generator": 8192,
-  "synthetic-data-generator": 3072,
-  "automation-skeleton-writer": 3072,
-  "coverage-and-safety-reviewer": 2048,
+  "requirement-analyzer": 1536,
+  "risk-and-privacy-planner": 1536,
+  "test-case-generator": 4096,
+  "synthetic-data-generator": 1024,
+  "automation-skeleton-writer": 512,
+  "coverage-and-safety-reviewer": 512,
 };
 
 /** Flip to `false` to allow unauthenticated calls during local probing. */
@@ -186,6 +186,20 @@ function preview(value: string, max = 400): string {
   return value.length <= max ? value : `${value.slice(0, max)}…`;
 }
 
+function isTimeoutError(message: string): boolean {
+  return /\btimeout\b|timed out|ETIMEDOUT|time.?out|aborted|deadline exceeded/i.test(
+    message,
+  );
+}
+
+function formatStageError(err: unknown): string {
+  const message = err instanceof Error ? err.message : String(err);
+  if (isTimeoutError(message)) {
+    return `Request timed out after ${LLM_REQUEST_TIMEOUT_MS / 1000}s. Try GPT-4o Mini (default), use a shorter requirement, or wait and retry.`;
+  }
+  return message;
+}
+
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /**
@@ -225,7 +239,7 @@ async function runStageWithRetry<K extends PromptStageId>(
   apiModel: string,
   id: K,
   input: StageInputMap[K],
-  maxAttempts = 3,
+  maxAttempts = 2,
 ): Promise<{ data: unknown; trace: StageTraceEntry }> {
   let last: { data: unknown; trace: StageTraceEntry } | undefined;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -312,7 +326,7 @@ async function runStage<K extends PromptStageId>(
     };
   } catch (err) {
     const finishedAt = new Date();
-    const message = err instanceof Error ? err.message : String(err);
+    const message = formatStageError(err);
     return {
       data: null,
       trace: {
@@ -378,12 +392,111 @@ function tracesToPipelineStages(
 const Stage3OutputSchema = z.object({
   testCases: z.array(z.unknown()).min(1),
 });
+const CombinedAnalysisSchema = z.object({
+  analysis: z.unknown(),
+  riskPlan: z.unknown(),
+});
 const Stage4OutputSchema = z.object({
   syntheticData: SyntheticDataSchema,
 });
 const Stage5OutputSchema = z.object({
   automation: AutomationSkeletonSchema,
 });
+
+/** Combined stages 1+2 in one LLM round-trip (~10–15s saved). */
+async function runCombinedAnalysisStage(
+  client: OpenAI,
+  apiModel: string,
+  requirementText: string,
+  requirementId?: string,
+): Promise<{
+  data: { analysis: unknown; riskPlan: unknown } | null;
+  traces: StageTraceEntry[];
+}> {
+  const startedAt = new Date();
+  const baseTrace = {
+    pipelineStage: "requirement-parsing" as PipelineStageName,
+    startedAt: startedAt.toISOString(),
+  };
+
+  try {
+    const { system, user } = buildCombinedAnalysisRiskMessages({
+      requirementText,
+      requirementId,
+    });
+
+    const completion = await client.chat.completions.create({
+      model: apiModel,
+      temperature: TEMPERATURE,
+      max_tokens: 2048,
+      response_format: { type: "json_object" },
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: user },
+      ],
+    });
+
+    const raw = completion.choices[0]?.message?.content ?? "";
+    if (!raw.trim()) {
+      throw new Error("LLM returned an empty response.");
+    }
+
+    const parsed = CombinedAnalysisSchema.parse(extractJsonObject(raw));
+    const finishedAt = new Date();
+    const durationMs = finishedAt.getTime() - startedAt.getTime();
+    const message = `Combined analysis + risk plan in ${durationMs} ms`;
+
+    return {
+      data: { analysis: parsed.analysis, riskPlan: parsed.riskPlan },
+      traces: [
+        {
+          id: "requirement-analyzer",
+          name: STAGE_PROMPTS["requirement-analyzer"].name,
+          ...baseTrace,
+          status: "succeeded",
+          finishedAt: finishedAt.toISOString(),
+          durationMs,
+          outputPreview: preview(raw),
+          message,
+        },
+        {
+          id: "risk-and-privacy-planner",
+          name: STAGE_PROMPTS["risk-and-privacy-planner"].name,
+          ...baseTrace,
+          status: "succeeded",
+          finishedAt: finishedAt.toISOString(),
+          durationMs,
+          message: "Completed with combined analysis call",
+        },
+      ],
+    };
+  } catch (err) {
+    const finishedAt = new Date();
+    const message = formatStageError(err);
+    return {
+      data: null,
+      traces: [
+        {
+          id: "requirement-analyzer",
+          name: STAGE_PROMPTS["requirement-analyzer"].name,
+          ...baseTrace,
+          status: "failed",
+          finishedAt: finishedAt.toISOString(),
+          durationMs: finishedAt.getTime() - startedAt.getTime(),
+          message,
+        },
+        {
+          id: "risk-and-privacy-planner",
+          name: STAGE_PROMPTS["risk-and-privacy-planner"].name,
+          ...baseTrace,
+          status: "skipped",
+          finishedAt: finishedAt.toISOString(),
+          message: "Skipped — combined analysis failed",
+        },
+      ],
+    };
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Route handler
@@ -442,7 +555,7 @@ export async function POST(
   let client: OpenAI;
   let apiModel: string;
   try {
-    const resolved = resolveLlm(model, PER_CALL_TIMEOUT_MS);
+    const resolved = resolveLlm(model, LLM_REQUEST_TIMEOUT_MS);
     client = resolved.client;
     apiModel = resolved.apiModel;
   } catch (err) {
@@ -468,31 +581,23 @@ export async function POST(
   // that includes which stage failed and the partial trace, so the UI can
   // render an honest "stage 3 failed" timeline.
 
-  // Stage 1 — Requirement Analyzer
-  const stage1 = await runStageWithRetry(client, apiModel, "requirement-analyzer", {
-    requirementText: body.requirement,
-    requirementId: body.requirementId,
-  });
-  stageTrace.push(stage1.trace);
-  if (stage1.trace.status !== "succeeded") {
-    return errorResponse("requirement-analyzer", stage1.trace, stageTrace, 502);
-  }
-  const analysis = stage1.data;
-
-  // Stage 2 — Risk & Privacy Planner
-  const stage2 = await runStageWithRetry(client, apiModel, "risk-and-privacy-planner", {
-    analysis,
-  });
-  stageTrace.push(stage2.trace);
-  if (stage2.trace.status !== "succeeded") {
+  // Stage 1+2 — Combined Requirement Analysis + Risk Plan (single LLM call)
+  const combined = await runCombinedAnalysisStage(
+    client,
+    apiModel,
+    body.requirement,
+    body.requirementId,
+  );
+  stageTrace.push(...combined.traces);
+  if (!combined.data) {
     return errorResponse(
-      "risk-and-privacy-planner",
-      stage2.trace,
+      "requirement-analyzer",
+      combined.traces[0],
       stageTrace,
-      502,
+      isTimeoutError(combined.traces[0].message ?? "") ? 504 : 502,
     );
   }
-  const riskPlan = stage2.data;
+  const { analysis, riskPlan } = combined.data;
 
   // Stage 3 — Test Case Generator
   const stage3 = await runStageWithRetry(client, apiModel, "test-case-generator", {
@@ -501,20 +606,28 @@ export async function POST(
   });
   stageTrace.push(stage3.trace);
   if (stage3.trace.status !== "succeeded") {
-    return errorResponse("test-case-generator", stage3.trace, stageTrace, 502);
+    return errorResponse(
+      "test-case-generator",
+      stage3.trace,
+      stageTrace,
+      isTimeoutError(stage3.trace.message ?? "") ? 504 : 502,
+    );
   }
   let testCases: TestCase[];
   let droppedTestCases: { index: number; reason: string }[] = [];
   try {
     const rawTestCases = Stage3OutputSchema.parse(stage3.data).testCases;
-    const filtered = parseAndFilter(rawTestCases, TestCaseSchema);
+    const normalizedTestCases = normalizeTestCasesPayload({
+      testCases: rawTestCases,
+    });
+    const filtered = parseAndFilter(normalizedTestCases, TestCaseSchema);
     testCases = filtered.valid;
     droppedTestCases = filtered.dropped;
     if (testCases.length === 0) {
-      if (droppedTestCases[0]) {
+      if (droppedTestCases.length > 0) {
         console.error(
-          "[agent] All test cases dropped. First failure reason:",
-          droppedTestCases[0],
+          "[agent] All test cases dropped. Sample failures:",
+          droppedTestCases.slice(0, 5),
         );
       }
       return schemaErrorResponse(
@@ -536,36 +649,38 @@ export async function POST(
     );
   }
 
-  // Stages 4 + 5 — Synthetic Data and Automation (parallel; both depend on testCases only)
-  const [stage4, stage5] = await Promise.all([
-    runStageWithRetry(client, apiModel, "synthetic-data-generator", {
-      testCases,
-      riskPlan,
-    }),
-    runStageWithRetry(client, apiModel, "automation-skeleton-writer", {
-      testCases,
-    }),
-  ]);
-  stageTrace.push(stage4.trace, stage5.trace);
-  if (stage4.trace.status !== "succeeded") {
-    return errorResponse(
-      "synthetic-data-generator",
-      stage4.trace,
-      stageTrace,
-      502,
-    );
-  }
-  if (stage5.trace.status !== "succeeded") {
-    return errorResponse(
-      "automation-skeleton-writer",
-      stage5.trace,
-      stageTrace,
-      502,
-    );
-  }
+  // Stage 4 — Synthetic Data (local; no LLM)
+  const stage4Started = new Date();
+  const syntheticDataRaw = buildSyntheticData(testCases);
+  const stage4Finished = new Date();
+  stageTrace.push({
+    id: "synthetic-data-generator",
+    name: STAGE_PROMPTS["synthetic-data-generator"].name,
+    pipelineStage: "synthetic-data",
+    status: "succeeded",
+    startedAt: stage4Started.toISOString(),
+    finishedAt: stage4Finished.toISOString(),
+    durationMs: stage4Finished.getTime() - stage4Started.getTime(),
+    message: "Generated locally from test cases (no LLM call)",
+  });
+
+  const stage5Started = new Date();
+  const automation = buildAutomationSkeleton(testCases);
+  const stage5Finished = new Date();
+  stageTrace.push({
+    id: "automation-skeleton-writer",
+    name: STAGE_PROMPTS["automation-skeleton-writer"].name,
+    pipelineStage: "automation-skeleton",
+    status: "succeeded",
+    startedAt: stage5Started.toISOString(),
+    finishedAt: stage5Finished.toISOString(),
+    durationMs: stage5Finished.getTime() - stage5Started.getTime(),
+    message: "Generated locally from test cases (no LLM call)",
+  });
+
   let syntheticData: SyntheticData;
   try {
-    const normalized = normalizeSyntheticDataPayload(stage4.data);
+    const normalized = normalizeSyntheticDataPayload({ syntheticData: syntheticDataRaw });
     syntheticData = Stage4OutputSchema.parse(normalized).syntheticData;
   } catch (err) {
     return schemaErrorResponse(
@@ -576,22 +691,15 @@ export async function POST(
     );
   }
 
-  let automation: AutomationSkeleton;
-  try {
-    automation = Stage5OutputSchema.parse(stage5.data).automation;
-  } catch (err) {
-    return schemaErrorResponse(
-      "automation-skeleton-writer",
-      "Automation skeleton failed schema validation.",
-      err,
-      stageTrace,
-    );
-  }
-
   // Stage 6 — Coverage & Safety (computed locally; no LLM round-trip)
   const stage6Started = new Date();
   let coverage = computeCoverageReport(testCases);
   let safety = computeSafetyChecklist(testCases, syntheticData, automation);
+  const testCaseValidation = validateTestCases(testCases);
+  coverage = {
+    ...coverage,
+    coveragePct: testCaseValidation.coverageScore / 100,
+  };
   const stage6Finished = new Date();
   stageTrace.push({
     id: "coverage-and-safety-reviewer",
@@ -629,6 +737,7 @@ export async function POST(
     },
     stages: tracesToPipelineStages(stageTrace),
     testCases,
+    testCaseValidation,
     syntheticData,
     automation,
     coverage,
@@ -676,12 +785,13 @@ function errorResponse(
   stageTrace: StageTraceEntry[],
   status: number,
 ): NextResponse<ErrorBody> {
+  const timedOut = isTimeoutError(failedTrace.message ?? "");
   return NextResponse.json<ErrorBody>(
     {
       ok: false,
       error: {
         stage,
-        code: "STAGE_FAILED",
+        code: timedOut ? "TIMEOUT" : "STAGE_FAILED",
         message: failedTrace.message ?? `Stage ${stage} failed.`,
         details: failedTrace.outputPreview,
       },

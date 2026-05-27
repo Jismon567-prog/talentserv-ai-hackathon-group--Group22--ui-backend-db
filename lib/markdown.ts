@@ -17,6 +17,7 @@ import type { AgentOutput } from "./schemas";
 export function renderAgentOutputAsMarkdown(output: AgentOutput): string {
   return [
     renderHeader(output),
+    renderValidation(output),
     renderTestCases(output),
     renderSyntheticData(output),
     renderAutomation(output),
@@ -44,6 +45,58 @@ function renderHeader(output: AgentOutput): string {
     ``,
     `> ${meta.requirementText.split("\n").join("\n> ")}`,
   ].join("\n");
+}
+
+function renderValidation(output: AgentOutput): string {
+  const v = output.testCaseValidation;
+  if (!v) return "";
+
+  const failed = v.checks.filter((c) => !c.passed);
+  const lines = [
+    `## Test Case Quality & Coverage Validation`,
+    ``,
+    `- **Quality score:** ${v.score}/100`,
+    `- **Coverage score:** ${v.coverageScore ?? Math.round(output.coverage.coveragePct * 100)}%`,
+    `- **Status:** ${v.passed ? "Passed" : "Needs improvement"}`,
+    `- **Summary:** ${v.summary}`,
+    ``,
+    `### Category coverage`,
+    ``,
+    `| Category | Count |`,
+    `| --- | ---: |`,
+    ...Object.entries(v.categoryCoverage).map(
+      ([category, count]) => `| ${category} | ${count} |`,
+    ),
+  ];
+
+  if (v.coverageBreakdown?.length) {
+    lines.push("", "### Coverage breakdown", "", "| Area | Count | Required | Status |", "| --- | ---: | ---: | --- |");
+    for (const area of v.coverageBreakdown) {
+      lines.push(
+        `| ${area.label} | ${area.count} | ${area.minRequired} | ${area.covered ? "✓" : "✗"} |`,
+      );
+    }
+  }
+
+  if (v.missingScenarios?.length) {
+    lines.push("", "### Missing scenarios", "");
+    for (const s of v.missingScenarios) lines.push(`- ${s}`);
+  }
+
+  if (v.suggestions.length > 0) {
+    lines.push("", "### Suggestions", "");
+    for (const s of v.suggestions) lines.push(`- ${s}`);
+  }
+
+  if (failed.length > 0) {
+    lines.push("", "### Issues", "");
+    for (const check of failed) {
+      lines.push(`- **${check.label}** — ${check.message}`);
+      if (check.suggestion) lines.push(`  - _Suggestion:_ ${check.suggestion}`);
+    }
+  }
+
+  return lines.join("\n");
 }
 
 function renderTestCases(output: AgentOutput): string {
