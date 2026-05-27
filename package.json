@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "vercel:env:pull": "vercel env pull .env.vercel.local --environment=production",
+    "vercel:deploy": "vercel --prod"
   },
   "dependencies": {
     "@clerk/nextjs": "^6.12.0",

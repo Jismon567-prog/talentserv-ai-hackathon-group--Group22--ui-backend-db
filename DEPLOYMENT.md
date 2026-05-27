@@ -166,6 +166,8 @@ See [§5 Configure Clerk for Production](#5-configure-clerk-for-production).
 npm i -g vercel
 vercel login
 vercel link          # link to new or existing project
+cp .env.vercel.example .env.vercel.local   # fill secrets, then sync or paste in dashboard
+./scripts/sync-vercel-env.sh .env.vercel.local
 vercel env pull .env.vercel.local   # optional: pull env for local testing
 vercel --prod
 ```
