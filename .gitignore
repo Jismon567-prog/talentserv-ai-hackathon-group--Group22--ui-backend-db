@@ -13,5 +13,9 @@ build/
 next-env.d.ts
 .tsbuildinfo
 
+# Playwright
+automation/playwright/test-results/
+automation/playwright/playwright-report/
+
 # clerk configuration (can include secrets)
 /.clerk/

@@ -59,11 +59,9 @@ import {
 } from "@/lib/prompts";
 import {
   AgentOutputSchema,
-  AutomationSkeletonSchema,
   SyntheticDataSchema,
   TestCaseSchema,
   type AgentOutput,
-  type AutomationSkeleton,
   type PipelineStageName,
   type SyntheticData,
   type TestCase,
@@ -398,9 +396,6 @@ const CombinedAnalysisSchema = z.object({
 });
 const Stage4OutputSchema = z.object({
   syntheticData: SyntheticDataSchema,
-});
-const Stage5OutputSchema = z.object({
-  automation: AutomationSkeletonSchema,
 });
 
 /** Combined stages 1+2 in one LLM round-trip (~10–15s saved). */

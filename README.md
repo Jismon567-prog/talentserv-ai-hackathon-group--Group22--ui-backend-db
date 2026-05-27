@@ -26,6 +26,20 @@ Reference: [OpenMRS Core](https://github.com/openmrs/openmrs-core)
 | Supabase generation history | ✅ (optional) |
 | OpenAI + Groq model selection | ✅ |
 | 10 agent meta-test cases | ✅ |
+| Automated meta-tests (`npm test`) + GitHub Actions CI | ✅ |
+| Runnable Playwright smoke tests | ✅ |
+
+---
+
+## Judge Quick Start
+
+**Live demo:** https://openmrs-ai-test-agent.vercel.app
+
+1. **Sign in** (Clerk).
+2. Open **Dashboard** → click a **sample requirement**.
+3. Select **Llama 3.1 8B Instant** (fastest on Vercel Hobby 60s limit).
+4. Click **Generate** → review Test Cases, Coverage, Safety, Automation, Export.
+5. Optional: **Agent QA** at `/dashboard/agent-tests` · one-pager: **[SUBMISSION.md](SUBMISSION.md)** · scorecard: **[docs/9-evaluation-coverage.md](docs/9-evaluation-coverage.md)** (100% criteria mapped).
 
 ---
 
@@ -65,7 +79,10 @@ Full setup: **[DEPLOYMENT.md](DEPLOYMENT.md)** · Hackathon doc: [docs/7-deploym
 │   └── layout.tsx
 ├── components/             # UI panels (progress, validation, export)
 ├── lib/                    # Agent pipeline, schemas, prompts, validator
+├── tests/                  # Vitest — automated TC-AGENT-001…010
+├── automation/playwright/  # Runnable Playwright + REST smoke tests
 ├── supabase/               # SQL schema + migrations
+├── .github/workflows/      # CI — lint, test, build, Playwright
 ├── docs/                   # Hackathon submission documents
 └── middleware.ts           # Clerk route protection
 ```
@@ -115,6 +132,10 @@ Export (MD / CSV / JSON)
 | 5 | [Critical Review](docs/5-critical-review.md) | Quality, security, limitations, debt |
 | 6 | [Agentic Evidence](docs/6-agentic-evidence.md) | Cursor AI development workflow |
 | 7 | [Deployment Guide](docs/7-deployment-guide.md) | Setup, env vars, Vercel deployment |
+| 8 | [Demo Video Script](docs/8-demo-video-script.md) | 10–12 min judge demo script |
+| 9 | [Evaluation Coverage](docs/9-evaluation-coverage.md) | 100% criteria scorecard + evidence |
+
+**Judge index:** [SUBMISSION.md](SUBMISSION.md)
 
 ---
 
@@ -150,6 +171,15 @@ See [`.env.local.example`](.env.local.example) and **[DEPLOYMENT.md §2](DEPLOYM
 
 Ten documented test cases validating the agent itself (auth, schema, privacy, retry, export) are available in the dashboard at **Agent QA** (`/dashboard/agent-tests`) and in [docs/4-test-plan.md](docs/4-test-plan.md).
 
+**Automated (CI):**
+
+```bash
+npm test                    # Vitest — TC-AGENT-001 … 010
+cd automation/playwright && npm install && npm test   # Playwright smoke
+```
+
+GitHub Actions: `.github/workflows/ci.yml`
+
 ---
 
 ## Deploy to Vercel
@@ -178,7 +208,7 @@ Full step-by-step guide: **[DEPLOYMENT.md](DEPLOYMENT.md)**
 
 | Limitation | Next Step |
 | ---------- | --------- |
-| Automation skeletons are templates | Execute against OpenMRS Reference Application |
+| Automation skeletons are templates | Runnable smoke tests in `automation/playwright/`; point `BASE_URL` at OpenMRS for full integration |
 | LLM output varies by model | Use GPT-4o for highest quality |
 | Supabase optional | Configure for persistent history |
 | Long runs (60–90s) | Use GPT-4o Mini; ensure Vercel Pro for 120s timeout |
