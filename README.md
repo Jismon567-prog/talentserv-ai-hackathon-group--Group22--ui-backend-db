@@ -64,6 +64,8 @@ npm run dev
 
 Open **http://localhost:3000** → Sign in → **Dashboard** → pick a sample → **Generate**.
 
+To regenerate the sign-in screen project overview audio (male voice, OpenAI TTS): `OPENAI_API_KEY=... npm run generate:login-audio` → writes `public/audio/login-overview.mp3`.
+
 Full setup: **[DEPLOYMENT.md](DEPLOYMENT.md)** · Hackathon doc: [docs/7-deployment-guide.md](docs/7-deployment-guide.md)
 
 ---
