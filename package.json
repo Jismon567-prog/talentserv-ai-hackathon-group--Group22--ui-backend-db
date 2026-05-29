@@ -8,7 +8,9 @@
     "start": "next start",
     "lint": "eslint . --max-warnings 0",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "vercel:env:pull": "vercel env pull .env.vercel.local --environment=production",
+    "vercel:deploy": "vercel --prod"
   },
   "dependencies": {
     "@clerk/nextjs": "^6.12.0",

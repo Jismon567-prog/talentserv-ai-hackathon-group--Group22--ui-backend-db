@@ -141,7 +141,7 @@ Export (MD / CSV / JSON)
 
 ## Environment Variables
 
-See [`.env.local.example`](.env.local.example) and **[DEPLOYMENT.md §2](DEPLOYMENT.md#2-production-environment-variables)** for production.
+See [`.env.local.example`](.env.local.example), [`.env.vercel.example`](.env.vercel.example), and **[DEPLOYMENT.md §2](DEPLOYMENT.md#2-production-environment-variables)** for production.
 
 ### Required for production
 
