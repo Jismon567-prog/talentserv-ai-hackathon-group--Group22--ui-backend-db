@@ -41,7 +41,7 @@ This plan describes how Group 22 delivered a **Next.js 15 monolith** that orches
 1. Implement StageProgress component with heuristic timer reconciled to server trace.
 2. Add export utilities (Markdown, JSON, CSV) and copy/download toolbar.
 3. Integrate Supabase for generation history with graceful fallback.
-4. Add localStorage session cache for in-progress dashboard state.
+4. Add localStorage session cache for in-progress dashboard state (`lib/generation-cache.ts`).
 5. Build GenerationHistoryPanel and Agent QA meta-testing page.
 
 ### Phase 5 — Hardening & Submission (Days 6–7)
@@ -50,6 +50,8 @@ This plan describes how Group 22 delivered a **Next.js 15 monolith** that orches
 2. Align client/server timeouts; add model selector (OpenAI + Groq).
 3. Fix UI edge cases (re-validate button, hydration warnings, history panel layout).
 4. Produce hackathon submission documentation in `docs/`.
+5. Add Vitest meta-tests, GitHub Actions CI, and Playwright smoke skeleton.
+6. Split `lib/generation-cache.ts` from `lib/utils.ts` for lighter client bundles.
 
 ---
 

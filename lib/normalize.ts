@@ -236,7 +236,7 @@ function readOpenMrsRelevance(item: Record<string, unknown>): Record<string, unk
 
 /** Coerce common LLM id slips into `TC-AREA-001` before strict Zod validation. */
 export function normalizeTestCaseId(raw: unknown, fallbackIndex: number): string {
-  let id = String(raw ?? "")
+  const id = String(raw ?? "")
     .trim()
     .toUpperCase()
     .replace(/[\s_]+/g, "-")

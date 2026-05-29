@@ -52,7 +52,7 @@ export const AGENT_SELF_TESTS: AgentSelfTest[] = [
     scenario: "Unauthenticated callers cannot trigger artifact generation.",
     given: "A request with no Clerk session calls `/api/agent/generate`.",
     when: "Clerk middleware and the route's `auth()` gate evaluate.",
-    then: "The route returns HTTP 401 `UNAUTHORIZED` and exits before any LLM call.",
+    then: "The route returns HTTP 401 `UNAUTHENTICATED` and exits before any LLM call.",
     evidence: "middleware.ts protects /dashboard + /api; route re-checks auth().",
   },
   {

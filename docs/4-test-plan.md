@@ -267,7 +267,21 @@ The `lib/validator.ts` engine runs automatically after Stage 3 and on **Re-valid
 
 ---
 
-## 9. Related Documents
+## 9. Automated Execution
+
+Documented meta-tests are also **automated in CI**:
+
+| Layer | Location | Command |
+|-------|----------|---------|
+| Vitest (TC-AGENT-001…010) | `tests/agent-meta-tests.test.ts` | `npm test` |
+| Playwright smoke | `automation/playwright/tests/smoke.spec.ts` | `cd automation/playwright && npm test` |
+| GitHub Actions | `.github/workflows/ci.yml` | Runs on push/PR to `main` |
+
+UI catalog remains at `/dashboard/agent-tests` (`lib/agent-self-tests.ts`).
+
+---
+
+## 10. Related Documents
 
 - [Groomed Requirements](./1-groomed-requirements.md)
 - [Critical Review](./5-critical-review.md)

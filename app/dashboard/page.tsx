@@ -101,11 +101,11 @@ import type {
 import { normalizeAgentOutput } from "@/lib/normalize";
 import {
   clearCurrentGeneration,
-  cn,
   loadCurrentGeneration,
   saveCurrentGeneration,
   type CachedGenerationResult,
-} from "@/lib/utils";
+} from "@/lib/generation-cache";
+import { cn } from "@/lib/utils";
 
 /** Must exceed server maxDuration + network buffer (see generate/route.ts). */
 const CLIENT_GENERATION_TIMEOUT_MS = 130_000;
@@ -131,7 +131,7 @@ const SAMPLE_ICONS: Record<SampleIconId, LucideIcon> = {
 // Response shape (mirrors /api/agent/generate/route.ts)
 // ---------------------------------------------------------------------------
 
-interface ApiSuccess extends CachedGenerationResult {}
+type ApiSuccess = CachedGenerationResult;
 
 interface ApiError {
   ok: false;
