@@ -2,6 +2,9 @@ import { SignIn } from "@clerk/nextjs";
 import Link from "next/link";
 import { Activity } from "lucide-react";
 
+import { ProjectAudioPlayer } from "@/components/ProjectAudioPlayer";
+import { LOGIN_OVERVIEW_AUDIO_SRC } from "@/lib/login-narration";
+
 export default function SignInPage() {
   return (
     <div className="grid min-h-screen lg:grid-cols-2">
@@ -22,6 +25,11 @@ export default function SignInPage() {
             privacy, and audit test cases — with synthetic OpenMRS data and
             Playwright skeletons ready to run.
           </p>
+          <ProjectAudioPlayer
+            src={LOGIN_OVERVIEW_AUDIO_SRC}
+            title="OpenMRS AI Agent project overview"
+            variant="light"
+          />
         </div>
 
         <div className="text-sm text-blue-200">
@@ -45,6 +53,13 @@ export default function SignInPage() {
             <p className="text-sm text-muted-foreground">
               Sign in to continue to your dashboard.
             </p>
+          </div>
+
+          <div className="lg:hidden">
+            <ProjectAudioPlayer
+              src={LOGIN_OVERVIEW_AUDIO_SRC}
+              title="OpenMRS AI Agent project overview"
+            />
           </div>
 
           <div className="flex justify-center">
